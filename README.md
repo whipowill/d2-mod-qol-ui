@@ -13,6 +13,12 @@ A game mod for Diablo II introducing various UI enhancements such as loot filter
 
 All of these features are configured in the ``qol_ui.ini`` and ``qol_ui_filter.cfg`` files.
 
+## Shortcuts
+
+- **Shift + left click** - identify an unknown item in your inventory
+- **Shift + right click** - move an item to the open stash or cube, or back
+- **Ctrl + right click** - drop an item to the ground
+
 ## Install
 
 Copy and paste the files from ``build/`` into your game folder, and add the ``qol_ui.dll`` to your game DLL loader.
@@ -25,8 +31,7 @@ You'll have to create your own ``qol_ui_filter.cfg`` in the game folder to input
 
 ## License
 
-AGPL-3.0, see `LICENSE`. This project contains code and data ported from [slashdiablo-maphack (BH)](https://github.com/BeLikeLeBron/slashdiablo-maphack),
-which is AGPL-3.0 (the ItemDisplay rule engine and its behaviour, the AutoTele marker table and lookup logic, the stats panel, the drop notifications, the shift-click identify).
+AGPL-3.0, see `LICENSE`. Includes code ported from [slashdiablo-maphack (BH)](https://github.com/BeLikeLeBron/slashdiablo-maphack), also AGPL-3.0.
 
 ## External Links
 
