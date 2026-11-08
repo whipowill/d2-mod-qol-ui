@@ -23,6 +23,12 @@ All of these features are configured in the ``qol_ui.ini`` and ``qol_ui_filter.c
 
 Copy and paste the files from ``build/`` into your game folder, and add the ``qol_ui.dll`` to your game DLL loader.
 
+## Usage
+
+If you make changes to your config or loot filter rules, you can use this chat command:
+
+- ``.reload`` - reloads all config files
+
 ## Filter
 
 You'll have to create your own ``qol_ui_filter.cfg`` in the game folder to input your filter rules.
