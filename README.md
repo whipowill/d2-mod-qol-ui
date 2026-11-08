@@ -35,5 +35,5 @@ AGPL-3.0, see `LICENSE`. Includes code ported from [slashdiablo-maphack (BH)](ht
 
 ## External Links
 
-- [Will Scarlet's QOL](https://github.com/whipowill/d2-mod-qol-ui) - a DLL mod that provides various quality-of-life features and bug fixes
+- [Will Scarlet's QOL](https://github.com/whipowill/d2-mod-qol) - a DLL mod that provides various quality-of-life features and bug fixes
 - [Loot Filter Rules](https://github.com/planqi/slashdiablo-maphack/wiki/Stats) - a list of the official loot filter coding rules
