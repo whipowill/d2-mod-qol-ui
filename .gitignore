@@ -1,0 +1,20 @@
+# toolchain (pip --target install, ~400MB)
+.tools
+
+# local git identity / remote setup, machine-specific paths
+local.conf
+reset.sh
+
+# intermediates (pdb, lib, test binaries)
+.out/
+
+# build/ holds only the deliverables (dll + ini), which are tracked; ignore anything else that lands there
+build/*
+!build/qol_ui.dll
+!build/qol_ui.ini
+!build/qol_ui.mpq
+
+# runtime logs / captures and editor junk
+*.log
+*.bak
+*.pre-*
