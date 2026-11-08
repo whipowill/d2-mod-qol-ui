@@ -7,7 +7,6 @@ A game mod for Diablo II introducing various UI enhancements such as loot filter
 ## Features
 
 - **Loot Filter** - filter out useless items with filter rules
-- **Item Stat Ranges** - see the possible roll range next to each property on unique, set, runeword, magic and rare items
 - **Buff Icons** - see what buffs and debuffs are effecting you
 - **Stat Ranges** - see the range of possible stats on items
 - **Directions** - lines show you were to go on the map
