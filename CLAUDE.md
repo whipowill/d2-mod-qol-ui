@@ -36,6 +36,9 @@ same way as other game DLLs (PlugY `DllToLoad`, d2gl `load_dlls_late`). Everythi
 - `src/keys.h`: key thread (GetAsyncKeyState, only when the game window has focus, in a game, chat closed): reload, filter level +/-, stats, Esc.
 - `test/`: `filter_test.c`, `itemdb_test.c`, `sigtest.c` (hex-buffer signature checks for all four site finders, driven from `test.sh`).
 
+## Colours that only work in Glide (found the hard way)
+`%CORAL% %SAGE% %TEAL% %LIGHT_GRAY%` are colour codes built from control characters (`\xFF c \x06 / \x07 / \x09 / \x0C`). BH (`ItemDisplay.cpp`, "Revert to non-glide colors") keeps them only when the video mode (WORD at D2gfx +0x14A38; 4 = Glide, which d2gl reports) is Glide and otherwise replaces them with red / green / blue / gray. We passed "not Glide" for a long time (`fi_set_video(s, 0)`), so those four always showed as plain colours; `mh_video_glide()` now reads the real mode before every name evaluation.
+
 ## Rule syntax (BH-compatible; the engine matches BH's behaviour)
 - `ItemDisplay[conds]: text // comment`; also `ConditionGroup[name]`, `ClassSkillsList`, `TabSkillsList`; other lines ignored.
 - Conditions are split on spaces, with leading/trailing `! ( )` peeled off. Key/value splits at `<`, `=`, `>`. Adjacent operands are an implicit AND. AND and OR have
@@ -96,5 +99,8 @@ Item labels are cached per item (128 entries, 2 s TTL, bumped generation on relo
 ## Debugging a crash
 Set `logging=1`, reproduce, read the last lines of `qol_ui.log`: the `EXCEPTION` line gives the faulting module+offset and registers. Faults deep in game code with our frames absent usually mean a corrupted stub or a stack mismatch (calling convention), not the code at that address.
 
+## Item stat ranges (`src/statrange.h`, from BH `Item::OnPropertyBuild`)
+Hook: the call that builds ONE property line, D2Client +0x2E06D (`call 0x2CE40`, a userpurge function: EAX = stat number, ESI = the 128-wchar line buffer, stack = pItem, pStatList, nStatParam, nStatValue, `ret 0x10`). Unlike BH's stub (which reads dead stack slots after the call) ours saves the return address and the two arguments it needs BEFORE calling the original, then calls `sr_hook(nstat, wout, item, par)` which appends ` [min - max]` (colour `\377c<:>`, then back to `\377c3`). Ranges come from the game's tables in memory (all offsets verified against D2Common's own accessors): `sgptDataTable` = *(D2Common+0xA33F0); Properties +0xA4 (count +0xAC, record 0x2E: nFunc +0x18, wStat[7] +0x20); SetItems +0xC18 (count +0xC1C, record 0x1B8, 19 stats at +0x88); UniqueItems +0xC24 (count +0xC28, record 0x14C, 12 stats at **+0x8C**; BH's struct comment says 0x90); runewords via D2Common #10405 GetRunesTxt (record 0x120, stats +0xB0, rune-word id DWORD at +0x82) / #10981; magic affixes via #10174 GetItemMagicalMods (1-based, record 0x90, stats +0x24; `*(D2Common+0xA4CE4)` = first AutomMagic record); #10601 IsMatchingType. Results are cached per (item uid, stat, param). `item_stat_ranges=0` shows them only while Ctrl is held. NOT ported: BH's damage-line ranges (`OnDamagePropertyBuild`, a rewrite of the game's damage-line builder at +0x2E04B) and the "Base Defense [min - max]" line (`OnProperties`, a jump at +0x2E3FC).
+
 ## Not done / ideas
-Stat ranges on item descriptions (`{description}` text is parsed by the engine but no tooltip hook uses `fi_desc` yet; BH: "Always Show Item Stat Ranges", `Modules/Item/Item.cpp`).
+Stat ranges for damage lines and the base-defense range (see above); the rule engine's `{description}` text is parsed but no tooltip hook uses `fi_desc` yet.

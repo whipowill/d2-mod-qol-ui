@@ -109,6 +109,7 @@ static wchar_t g_msg[96]; static volatile LONG g_msg_ready;      // a chat line 
 #include "automap.h"
 #include "hud.h"
 #include "idclick.h"
+#include "statrange.h"
 #include "keys.h"
 
 
@@ -166,6 +167,8 @@ static void load_config(void) {
     g_dtint = GetPrivateProfileIntA("display", "debuff_tint", 1, path); if (g_dtint < 0 || g_dtint > 255) g_dtint = 1;
     g_info = master && GetPrivateProfileIntA("display", "map_info", 1, path);
     g_info_color = GetPrivateProfileIntA("display", "map_info_color", 4, path);
+    g_stat_ranges = GetPrivateProfileIntA("features", "item_stat_ranges", 1, path);
+    g_range_color = GetPrivateProfileIntA("features", "stat_range_color", 10, path); if (g_range_color < 0 || g_range_color > 15) g_range_color = 10;
     g_remember_filter = GetPrivateProfileIntA("lootfilter", "remember_filter_level", 1, path);
     g_item_move_cfg = master && GetPrivateProfileIntA("features", "item_move", 1, path);
     g_shift_id = master && GetPrivateProfileIntA("features", "shift_click_id", 1, path);
@@ -196,6 +199,7 @@ static DWORD WINAPI worker(LPVOID arg) {
     logf_("qol_ui started: lootfilter %s", g_filter_on ? "on" : "off");
     if (g_filter_on) CreateThread(NULL, 0, lootfilter_thread, NULL, 0, NULL);
     if (g_exit_lines || g_filter_on) CreateThread(NULL, 0, automap_thread, NULL, 0, NULL);
+    if (master_on) CreateThread(NULL, 0, statrange_thread, NULL, 0, NULL);
     if (g_shift_id || g_item_move_cfg) CreateThread(NULL, 0, idclick_thread, NULL, 0, NULL);
     if (master_on) CreateThread(NULL, 0, keys_thread, NULL, 0, NULL);
     if (g_clock || g_info || g_buffs) CreateThread(NULL, 0, hud_thread, NULL, 0, NULL);

@@ -7,6 +7,16 @@
 
 static fi_set *g_fi;                                            // the loaded rules
 
+// BH keeps CORAL / SAGE / TEAL / LIGHT_GRAY (colour codes made of control characters) only when the video mode is Glide (d2gl presents itself as Glide);
+// in other video modes they are replaced by red / green / blue / gray. The mode is the WORD at D2gfx +0x14A38 (1 GDI, 2 software, 3 DirectDraw, 4 Glide ...).
+static int mh_video_glide(void) {
+    HMODULE gx = GetModuleHandleA("D2gfx.dll");
+    if (!gx) return 1;
+    const WORD *m = (const WORD *)((BYTE *)gx + 0x14A38);
+    if (!readable(m, 2)) return 1;
+    return *m == 4;
+}
+
 typedef struct { DWORD unit; unsigned groups; } fi_ctx;
 typedef struct { WORD sub, index; DWORD value; } d2stat;
 typedef void *(__stdcall *mh_gettext_t)(DWORD);
@@ -88,6 +98,7 @@ static void __cdecl mh_item_name(wchar_t *name, DWORD item) {
     char in[512], out[640];
     int l = WideCharToMultiByte(CP_ACP, 0, name, -1, in, sizeof in - 1, NULL, NULL); if (l <= 0) return; in[sizeof in - 1] = 0;
     int blocked = 0;
+    fi_set_video(g_fi, mh_video_glide());                            // the video mode decides four of the colours (see above)
     fi_name(g_fi, &it, in, out, sizeof out, &blocked);
     c->uid = uid; c->flags = flags; c->mode = mode; c->hash = hash; c->gen = (DWORD)g_name_gen; c->tick = now; c->kind = 0;
     if (blocked && g_hide_blocked && (mode == 3 || mode == 5)) { c->kind = 2; name[0] = 0; return; }   // blocked item lying on the ground (3) or dropping (5): blank its label   // blocked item lying on the ground (3) or dropping (5): blank its label
@@ -344,7 +355,7 @@ static DWORD WINAPI lootfilter_thread(LPVOID arg) {
     }
     logf_("lootfilter: item tables: %d items known (%d of 4 tables)", itemdb_count(), got);
     if (got < 4) { fi_free(s); return 0; }
-    fi_set_video(s, 0);
+    fi_set_video(s, mh_video_glide());
     BYTE *base = (BYTE *)cl; IMAGE_SECTION_HEADER *sec = IMAGE_FIRST_SECTION(nt);
     for (int k = 0; k < nt->FileHeader.NumberOfSections; k++, sec++) {
         if (!(sec->Characteristics & IMAGE_SCN_MEM_EXECUTE)) continue;

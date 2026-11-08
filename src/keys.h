@@ -74,7 +74,7 @@ static void keys_reload(void) {
     char *cfg; size_t cn; int rules = -1;
     if (g_fi && mh_read_file("qol_ui_filter.cfg", &cfg, &cn)) {
         fi_set *s = fi_parse(cfg, cn, NULL, NULL, 0); free(cfg);
-        fi_set_video(s, 0);
+        fi_set_video(s, mh_video_glide());
         g_name_gen++;                                               // forget the cached item labels
         fi_set *old = g_fi; g_fi = s; rules = fi_rule_count(s);
         Sleep(2000);                                               // let a game-thread call that was using the old set finish

@@ -7,7 +7,9 @@ A game mod for Diablo II introducing various UI enhancements such as loot filter
 ## Features
 
 - **Loot Filter** - filter out useless items with filter rules
+- **Item Stat Ranges** - see the possible roll range next to each property on unique, set, runeword, magic and rare items
 - **Buff Icons** - see what buffs and debuffs are effecting you
+- **Stat Ranges** - see the range of possible stats on items
 - **Directions** - lines show you were to go on the map
 - **HUD Clock** - game always shows the current time
 
@@ -18,7 +20,7 @@ All of these features are configured in the ``qol_ui.ini`` and ``qol_ui_filter.c
 - ``Shift + left click`` - identify an unknown item in your inventory
 - ``Shift + right click`` - move an item to the open stash or cube, or back
 - ``Ctrl + right click`` - drop an item to the ground
-- ``B`` - pull up player or minion stats screen
+- ``B`` - pull up player or mercenary stats screen
 - ``+`` - increase item filter level
 - ``-`` - decrease item filter level
 
