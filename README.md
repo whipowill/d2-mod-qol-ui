@@ -15,19 +15,20 @@ All of these features are configured in the ``qol_ui.ini`` and ``qol_ui_filter.c
 
 ## Shortcuts
 
-- **Shift + left click** - identify an unknown item in your inventory
-- **Shift + right click** - move an item to the open stash or cube, or back
-- **Ctrl + right click** - drop an item to the ground
+- ``Shift + left click`` - identify an unknown item in your inventory
+- ``Shift + right click`` - move an item to the open stash or cube, or back
+- ``Ctrl + right click`` - drop an item to the ground
+- ``B`` - pull up player or minion stats screen
+- ``+`` - increase item filter level
+- ``-`` - decrease item filter level
+
+## Commands
+
+- ``.reload`` - reload all config files, including loot filter
 
 ## Install
 
 Copy and paste the files from ``build/`` into your game folder, and add the ``qol_ui.dll`` to your game DLL loader.
-
-## Usage
-
-If you make changes to your config or loot filter rules, you can use this chat command:
-
-- ``.reload`` - reloads all config files
 
 ## Filter
 
