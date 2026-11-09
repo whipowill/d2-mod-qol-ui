@@ -11,7 +11,7 @@ A mod for Diablo II introducing various UI enhancements such as loot filters, ma
 - **Stat Ranges** - see the range of possible stats on items
 - **Player Inspect** - see what another player is wearing
 - **Directions** - lines show you were to go on the map
-- **Always Show Items** - ground item labels stay on (no holding Alt), ``L`` toggles
+- **Always Show Items** - ground item labels stay on
 - **HUD Clock** - game always shows the current time
 
 All of these features are configured in the ``qol_ui.ini`` and ``qol_ui_filter.cfg`` files.
