@@ -17,6 +17,12 @@ int main(int argc, char **argv) {
         int ok = !strcmp(argv[1], "gcopy-orig") ? (g == 0 && !patched) : !strcmp(argv[1], "gcopy-patched") ? (g == 0 && patched == 1) : g < 0;
         printf("%s %s (offset %ld)\n", argv[1], ok ? "ok" : "FAIL", g); return !ok;
     }
+    if (!strncmp(argv[1], "show", 4)) {                       // show<N>-orig|patched|none
+        int w = argv[1][4] - '0'; long g = sig_find_showitems(big, n, w, &patched);
+        const char *k = argv[1] + 6; long want = w == 0 ? 1 : w == 1 ? 3 : 0;
+        int ok = !strcmp(k, "orig") ? (g == want && !patched) : !strcmp(k, "patched") ? (g == want && patched == 1) : g < 0;
+        printf("%s %s (offset %ld)\n", argv[1], ok ? "ok" : "FAIL", g); return !ok;
+    }
     if (!strncmp(argv[1], "chat-", 5)) {
         long g = sig_find_chatsend(big, n);
         int ok = !strcmp(argv[1], "chat-ok") ? g == 16 : g < 0;

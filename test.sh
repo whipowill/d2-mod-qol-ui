@@ -37,5 +37,19 @@ CHAT=${CHAT,,}
 .out/sigtest chat-ok ${CHAT}
 .out/sigtest chat-none ${CHAT:0:50}
 .out/sigtest chat-none ${CHAT}${CHAT}
+SH0=5f391dc4c8bc6f7413833d70d0bc6f03
+SH1=c20400391dc4c8bc6f0f857204000053538bc5e8
+SH2=8b44241c85c05f5d75236a006a006a0033d233c9c705
+SH3=8b0dc4c8bc6f33f63bce74af5f5e5b33c05d83c428c21000
+for w in 0 1 2 3; do
+  v=SH$w; h=${!v}
+  .out/sigtest show$w-orig $h
+  .out/sigtest show$w-none ${h}${h}
+  .out/sigtest show$w-none ${h:0:20}
+done
+.out/sigtest show0-patched ${SH0/391dc4c8bc6f/e8aabbccdd90}
+.out/sigtest show1-patched ${SH1/391dc4c8bc6f/e8aabbccdd90}
+.out/sigtest show2-patched ${SH2/8b44241c85c0/e8aabbccdd90}
+.out/sigtest show3-patched ${SH3/8b0dc4c8bc6f/e8aabbccdd90}
 gcc -O1 -Wall -Wextra -Isrc -o .out/filter_test test/filter_test.c src/filter.c && .out/filter_test
 gcc -O1 -Wall -Wextra -Isrc -o .out/itemdb_test test/itemdb_test.c src/itemdb.c && .out/itemdb_test

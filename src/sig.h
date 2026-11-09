@@ -2,6 +2,7 @@
 #ifndef UI_SIG_H
 #define UI_SIG_H
 #include <stddef.h>
+#include <string.h>
 
 __attribute__((unused)) static long qt_find(const unsigned char *buf, size_t n, size_t from, size_t to, const short *pat, int len, int *count) {
     long found = -1; int c = 0;
@@ -80,6 +81,37 @@ __attribute__((unused)) static long sig_find_goldcopy(const unsigned char *buf, 
     if (c1 + c2 != 1) return -1;
     if (patched) *patched = c2 == 1;
     return c1 ? a : b;
+}
+// "Always show items" (BH Item PermShowItems patches): the game draws ground labels only while the Alt flag (UI var 0xD, D2Client +0x11C8C4) is set. Four of
+// BH's five sites are used (the fifth is a no-op when the flag is forced). `which`: 0 = `cmp [flag],ebx` before `je` (+0x1D74E), 1 = the same before `jnz`
+// (+0x1A89A), 2 = `mov eax,[esp+1Ch] ; test eax,eax` at the end of the label loop (+0x4EA13), 3 = `mov ecx,[flag]` (+0x63443). Each is 6 bytes, replaced by
+// `E8 rel32 90`. Returns the offset of those 6 bytes, -1 unless exactly one match (original or already patched).
+__attribute__((unused)) static long sig_find_showitems(const unsigned char *buf, size_t n, int which, int *patched) {
+    static const short pre0[] = {0x5F}, suf0[] = {0x74,0x13,0x83,0x3D};
+    static const short pre1[] = {0xC2,0x04,0x00}, suf1[] = {0x0F,0x85,-1,-1,-1,-1,0x53,0x53,0x8B,0xC5,0xE8};
+    static const short suf2[] = {0x5F,0x5D,0x75,0x23,0x6A,0x00,0x6A,0x00,0x6A,0x00,0x33,0xD2,0x33,0xC9,0xC7,0x05};
+    static const short suf3[] = {0x33,0xF6,0x3B,0xCE,0x74,0xAF,0x5F,0x5E,0x5B,0x33,0xC0,0x5D,0x83,0xC4,0x28,0xC2,0x10,0x00};
+    static const short head0[] = {0x39,0x1D,-1,-1,-1,-1}, head2[] = {0x8B,0x44,0x24,0x1C,0x85,0xC0}, head3[] = {0x8B,0x0D,-1,-1,-1,-1}, hp[] = {0xE8,-1,-1,-1,-1,0x90};
+    const short *pre = NULL, *head = head0, *suf; int np = 0, ns;
+    switch (which) {
+        case 0: pre = pre0; np = 1; suf = suf0; ns = 4; break;
+        case 1: pre = pre1; np = 3; suf = suf1; ns = 11; break;
+        case 2: head = head2; suf = suf2; ns = 16; break;
+        case 3: head = head3; suf = suf3; ns = 18; break;
+        default: return -1;
+    }
+    short a[40], b[40]; int k = 0;
+    for (int i = 0; i < np; i++) a[k++] = pre[i];
+    int h0 = k;
+    for (int i = 0; i < 6; i++) a[k++] = head[i];
+    for (int i = 0; i < ns; i++) a[k++] = suf[i];
+    memcpy(b, a, sizeof a);
+    for (int i = 0; i < 6; i++) b[h0 + i] = hp[i];
+    int c1 = 0, c2 = 0;
+    long x = qt_find(buf, n, 0, n, a, k, &c1), y = qt_find(buf, n, 0, n, b, k, &c2);
+    if (c1 + c2 != 1) return -1;
+    if (patched) *patched = c2 == 1;
+    return (c1 ? x : y) + np;
 }
 // The plain chat-message send (D2Client +0x1B2342 relative: `mov al,[esp+71h] ; lea esi,[esp+70h] ; mov byte [esp+172h],0 ; call build-chat-packet ; jmp end`).
 // ESI points at the packet being built: byte 0 is the packet id, the typed ANSI text starts at +3. Returns the offset of the `E8 rel32` (patched or not;

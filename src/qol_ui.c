@@ -111,6 +111,7 @@ static wchar_t g_msg[96]; static volatile LONG g_msg_ready;      // a chat line 
 #include "idclick.h"
 #include "statrange.h"
 #include "inspect.h"
+#include "showitems.h"
 #include "keys.h"
 
 
@@ -173,6 +174,8 @@ static void load_config(void) {
     g_remember_filter = GetPrivateProfileIntA("lootfilter", "remember_filter_level", 1, path);
     g_item_move_cfg = master && GetPrivateProfileIntA("features", "item_move", 1, path);
     g_shift_id = master && GetPrivateProfileIntA("features", "shift_click_id", 1, path);
+    g_show_items_cfg = GetPrivateProfileIntA("features", "always_show_items", 0, path);
+    g_key_show_items = GetPrivateProfileIntA("keys", "show_items_key", 76, path);
     g_key_inspect = GetPrivateProfileIntA("keys", "inspect_key", 73, path);
     GetPrivateProfileStringA("keys", "reload_command", "reload", g_reload_cmd, (DWORD)sizeof g_reload_cmd, path);
     g_key_stats = GetPrivateProfileIntA("keys", "stats_key", 66, path);
@@ -205,6 +208,7 @@ static DWORD WINAPI worker(LPVOID arg) {
     if (g_filter_on) CreateThread(NULL, 0, lootfilter_thread, NULL, 0, NULL);
     if (g_exit_lines || g_filter_on) CreateThread(NULL, 0, automap_thread, NULL, 0, NULL);
     if (master_on && g_key_inspect) CreateThread(NULL, 0, inspect_thread, NULL, 0, NULL);
+    if (master_on && (g_show_items_cfg || g_key_show_items)) CreateThread(NULL, 0, showitems_thread, NULL, 0, NULL);
     if (master_on) CreateThread(NULL, 0, statrange_thread, NULL, 0, NULL);
     if (g_shift_id || g_item_move_cfg) CreateThread(NULL, 0, idclick_thread, NULL, 0, NULL);
     if (master_on) CreateThread(NULL, 0, keys_thread, NULL, 0, NULL);

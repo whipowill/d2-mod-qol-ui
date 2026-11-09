@@ -1,5 +1,6 @@
 // Key binds (polled from a helper thread, only while the game window has focus, you are in a game and no chat box is open):
 //   typing .reload in chat (the word is [keys] reload_command) re-reads qol_ui.ini and qol_ui_filter.cfg
+//   show_items_key                    toggles always-showing the ground item labels (showitems.h)
 //   filter_up_key / filter_down_key   raise / lower the filter level the rules compare with FILTLVL (0 none, 1 minimal, 2 moderate, 3 aggressive)
 // Keys are Windows virtual-key numbers (decimal) in qol_ui.ini [keys]; 0 = unbound.
 #ifndef UI_KEYS_H
@@ -10,7 +11,8 @@ static int g_key_inspect = 73, g_key_stats = 66, g_key_merc = 0, g_key_up = 187,
 
 static void keys_say(const wchar_t *fmt, int a, int b) {   // fmt takes two ints           // queued; printed on the game thread by mh_game_loop
     if (InterlockedCompareExchange(&g_msg_ready, 2, 0) != 0) return;
-    swprintf(g_msg, 96, fmt, a, b);
+    wchar_t body[80]; swprintf(body, 80, fmt, a, b);
+    swprintf(g_msg, 96, L"\377c4UI\377c0: %ls", body);                 // "UI:": gold UI, white colon
     InterlockedExchange(&g_msg_ready, 1);
 }
 static char g_reload_cmd[32] = "reload";
@@ -81,30 +83,34 @@ static void keys_reload(void) {
         fi_free(old);
     }
     logf_("reload: settings and %d rules re-read", rules);
-    keys_say(L"UI: reloaded (%d rules, filter level %d)", rules < 0 ? 0 : rules, g_filter_level);
+    keys_say(L"Reloaded (%d rules, filter level %d).", rules < 0 ? 0 : rules, g_filter_level);
 }
 
 static DWORD WINAPI keys_thread(LPVOID arg) {
     (void)arg;
-    int prev[8] = {0};
+    int prev[9] = {0};
     keys_install_chat();
     for (;;) {
         Sleep(40);
         if (InterlockedExchange(&g_reload_req, 0)) keys_reload();
-        int k[8] = {g_key_up, g_key_down, g_key_up2, g_key_down2, g_key_stats, 27, g_key_merc, g_key_inspect}, now[8], fire[8];
-        for (int i = 0; i < 8; i++) { now[i] = keys_down(k[i]); fire[i] = now[i] && !prev[i]; prev[i] = now[i]; }
-        if (!(fire[0] | fire[1] | fire[2] | fire[3] | fire[4] | fire[5] | fire[6] | fire[7])) continue;
+        int k[9] = {g_key_up, g_key_down, g_key_up2, g_key_down2, g_key_stats, 27, g_key_merc, g_key_inspect, g_key_show_items}, now[9], fire[9];
+        for (int i = 0; i < 9; i++) { now[i] = keys_down(k[i]); fire[i] = now[i] && !prev[i]; prev[i] = now[i]; }
+        if (!(fire[0] | fire[1] | fire[2] | fire[3] | fire[4] | fire[5] | fire[6] | fire[7] | fire[8])) continue;
         HMODULE cl = GetModuleHandleA("D2Client.dll");
         if (!cl || !p_player || !keys_focused() || !p_player()) continue;                // not in a game
         if (*(DWORD *)((BYTE *)cl + 0x11C890 + 5 * 4)) continue;                          // chat box open (UI var 5)
         if (fire[7] && g_inspect_ok) g_iv_req = GetTickCount() | 1;                       // inspect: handled on the game thread a moment later (inspect.h)
+        if (fire[8] && g_show_items_ok) {                                              // always-show-items toggle (showitems.h)
+            LONG on = !g_show_items; InterlockedExchange(&g_show_items, on);
+            keys_say(on ? L"Item labels always shown.%.0d%.0d" : L"Item labels shown only with Alt.%.0d%.0d", 0, 0);
+        }
         if (fire[4]) g_stats_open = !g_stats_open;
         if (fire[5]) g_stats_open = 0;                                                 // Esc closes the stats panel
         if (fire[6]) { g_stats_merc = !g_stats_merc; g_stats_open = 1; }
         if (fire[0] || fire[2] || fire[1] || fire[3]) {                                   // + / -: the filter level (BH: 0 None, 1 Minimal, 2 Moderate, 3 Aggressive)
             int up = fire[0] || fire[2];
             if (up && g_filter_level < 3) g_filter_level++; else if (!up && g_filter_level > 0) g_filter_level--;
-            static const wchar_t *fm[] = {L"UI: filter level 0 (none)%.0d", L"UI: filter level 1 (minimal)%.0d", L"UI: filter level 2 (moderate)%.0d", L"UI: filter level 3 (aggressive)%.0d"};
+            static const wchar_t *fm[] = {L"Filter level 0 (none).%.0d", L"Filter level 1 (minimal).%.0d", L"Filter level 2 (moderate).%.0d", L"Filter level 3 (aggressive).%.0d"};
             g_name_gen++;                                                                  // item labels depend on FILTLVL: forget the cached ones
             if (g_remember_filter) {                                                       // keep it for the next game: write the number back into qol_ui.ini
                 char ini[MAX_PATH], num[8]; GetCurrentDirectoryA(MAX_PATH, ini); lstrcatA(ini, "\\qol_ui.ini"); snprintf(num, sizeof num, "%d", g_filter_level);

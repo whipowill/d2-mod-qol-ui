@@ -11,17 +11,20 @@ A mod for Diablo II introducing various UI enhancements such as loot filters, ma
 - **Stat Ranges** - see the range of possible stats on items
 - **Player Inspect** - see what another player is wearing
 - **Directions** - lines show you were to go on the map
+- **Always Show Items** - ground item labels stay on (no holding Alt), ``L`` toggles
 - **HUD Clock** - game always shows the current time
 
 All of these features are configured in the ``qol_ui.ini`` and ``qol_ui_filter.cfg`` files.
 
 ## Shortcuts
 
-- ``Shift + left click`` - identify an unknown item in your inventory
-- ``Shift + right click`` - move an item to the open stash or cube, or back
-- ``Ctrl + right click`` - drop an item to the ground
+- ``shift + left click`` - identify an unknown item in your inventory
+- ``shift + right click`` - move an item to the open stash or cube, or back
+- ``ctrl + right click`` - drop an item to the ground
+- ``ctrl + left click`` - sell an item if at vendor (in stock game already)
 - ``B`` - pull up the in depth player or mercenary stats screen
 - ``I`` - see what another player is wearing (mouseover)
+- ``L`` - toggle always showing item labels
 - ``+`` - increase item filter level
 - ``-`` - decrease item filter level
 
