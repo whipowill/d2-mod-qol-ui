@@ -1,6 +1,6 @@
 # Will Scarlet's QOL UI for Diablo II
 
-A game mod for Diablo II introducing various UI enhancements such as loot filters, map indicators, and more.
+A mod for Diablo II introducing various UI enhancements such as loot filters, map indicators, and more.
 
 **Note this was designed for D2LOD v1.13 and will not work on version 1.14.**
 
@@ -45,5 +45,6 @@ AGPL-3.0, see `LICENSE`. Includes code ported from [slashdiablo-maphack (BH)](ht
 
 ## External Links
 
-- [Will Scarlet's QOL](https://github.com/whipowill/d2-mod-qol) - a DLL mod that provides various quality-of-life features and bug fixes
+- [Will Scarlet's PlugY Modpack](https://github.com/whipowill/d2-plugy-qol) - a compilation of all the best mods to play the game
+- [Will Scarlet's QOL Mod](https://github.com/whipowill/d2-mod-qol) - a DLL mod that provides various quality-of-life features and bug fixes
 - [Loot Filter Rules](https://github.com/planqi/slashdiablo-maphack/wiki/Stats) - a list of the official loot filter coding rules
