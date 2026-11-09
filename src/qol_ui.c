@@ -110,6 +110,7 @@ static wchar_t g_msg[96]; static volatile LONG g_msg_ready;      // a chat line 
 #include "hud.h"
 #include "idclick.h"
 #include "statrange.h"
+#include "inspect.h"
 #include "keys.h"
 
 
@@ -172,6 +173,7 @@ static void load_config(void) {
     g_remember_filter = GetPrivateProfileIntA("lootfilter", "remember_filter_level", 1, path);
     g_item_move_cfg = master && GetPrivateProfileIntA("features", "item_move", 1, path);
     g_shift_id = master && GetPrivateProfileIntA("features", "shift_click_id", 1, path);
+    g_key_inspect = GetPrivateProfileIntA("keys", "inspect_key", 73, path);
     GetPrivateProfileStringA("keys", "reload_command", "reload", g_reload_cmd, (DWORD)sizeof g_reload_cmd, path);
     g_key_stats = GetPrivateProfileIntA("keys", "stats_key", 66, path);
     g_key_merc = GetPrivateProfileIntA("keys", "stats_merc_key", 0, path);
@@ -183,8 +185,11 @@ static void load_config(void) {
     g_merc_color = GetPrivateProfileIntA("automap", "minion_color", GetPrivateProfileIntA("automap", "merc_color", 13, path), path);
     g_npc_color = GetPrivateProfileIntA("automap", "npc_color", g_merc_color, path);   // unset: the same as minion_color
     g_me_color = GetPrivateProfileIntA("automap", "me_color", 14, path);
+    g_team_color = GetPrivateProfileIntA("automap", "team_color", g_me_color, path);          // unset: the same as you
+    g_other_color = GetPrivateProfileIntA("automap", "other_player_color", g_npc_color, path);   // unset: the same as NPCs
     static const char *ck[AM_SLOTS] = {"next_color", "other_color", "wp_color", "prev_color", "extra_color"};
     for (int i = 0; i < AM_SLOTS; i++) g_am_color[i] = GetPrivateProfileIntA("automap", ck[i], g_am_color[i], path);
+    g_portal_color = GetPrivateProfileIntA("automap", "portal_color", g_am_color[AM_WP], path);   // unset: the same as the waypoint
 }
 
 static DWORD WINAPI worker(LPVOID arg) {
@@ -199,6 +204,7 @@ static DWORD WINAPI worker(LPVOID arg) {
     logf_("qol_ui started: lootfilter %s", g_filter_on ? "on" : "off");
     if (g_filter_on) CreateThread(NULL, 0, lootfilter_thread, NULL, 0, NULL);
     if (g_exit_lines || g_filter_on) CreateThread(NULL, 0, automap_thread, NULL, 0, NULL);
+    if (master_on && g_key_inspect) CreateThread(NULL, 0, inspect_thread, NULL, 0, NULL);
     if (master_on) CreateThread(NULL, 0, statrange_thread, NULL, 0, NULL);
     if (g_shift_id || g_item_move_cfg) CreateThread(NULL, 0, idclick_thread, NULL, 0, NULL);
     if (master_on) CreateThread(NULL, 0, keys_thread, NULL, 0, NULL);

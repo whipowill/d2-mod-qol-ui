@@ -14,6 +14,8 @@ static id_send_t p_idsend; static id_cursor_t p_idcursor;
 static void *(__stdcall *p_idtext)(DWORD); static DWORD (__stdcall *p_idstat)(DWORD, DWORD, DWORD);
 static WNDPROC g_old_wndproc;
 static DWORD g_mv_item, g_mv_x, g_mv_y, g_mv_dest, g_mv_at;                    // a pending move: the pickup was sent, the put-down follows one tick later
+static DWORD g_view_unit;                                                       // the unit whose inventory is shown (0 = yours); see inspect.h
+static void iv_tick(void);
 static DWORD g_id_item, g_id_book, g_id_at;                                  // a pending identify: send 0x27 when the clock passes g_id_at
 
 static int id_ui(int n) { return *(DWORD *)(g_hud_cl + 0x11C890 + 4 * n) != 0; }
@@ -56,6 +58,7 @@ static int id_try_click(void) {
     static int logged;
 #define ID_WHY(msg) do { if (g_logging && logged < 25) { logged++; logf_("shift-click identify: %s", msg); } } while (0)
     if (!g_shift_id || !g_hud_cl || !p_idsend || !p_idtext || !p_idstat || !p_player) return 0;
+    if (g_view_unit) return 0;                                       // the inventory on screen is another unit's
     if (g_id_item) { ID_WHY("an identify is still pending"); return 0; }
     DWORD pl = p_player();
     if (!pl || !readable((void *)pl, 0x30)) { ID_WHY("no player"); return 0; }
@@ -82,6 +85,7 @@ static void mv_tick(void) {
 }
 static void id_tick(void) {
     mv_tick();
+    iv_tick();
     if (!g_id_item || (int)(GetTickCount() - g_id_at) < 0) return;
     BYTE pk[9] = {0x27}; *(DWORD *)(pk + 1) = g_id_item; *(DWORD *)(pk + 5) = g_id_book;
     p_idsend(9, 0, pk);
@@ -114,7 +118,7 @@ static int mv_free(const mv_grid *g, int iw, int ih, int *ox, int *oy) {
 static int mv_try_click(int shift, int ctrl) {
     static int logged;
 #define MV_WHY(msg) do { if (g_logging && logged < 25) { logged++; logf_("item move: %s", msg); } } while (0)
-    if (!g_item_move_cfg || !g_hud_cl || !p_idsend || !p_idtext || !p_player || g_mv_item) return 0;
+    if (!g_item_move_cfg || !g_hud_cl || !p_idsend || !p_idtext || !p_player || g_mv_item || g_view_unit) return 0;
     DWORD pl = p_player();
     if (!pl || !readable((void *)pl, 0x64)) return 0;
     if (p_idcursor && p_idcursor()) { MV_WHY("an item is on the cursor"); return 0; }
@@ -164,6 +168,7 @@ static int mv_try_click(int shift, int ctrl) {
 }
 
 static LRESULT CALLBACK id_wndproc(HWND h, UINT m, WPARAM w, LPARAM l) {
+    if (m == WM_LBUTTONDOWN && g_view_unit && g_hud_cl && id_ui(1) && (int)*(DWORD *)(g_hud_cl + 0x11C950) >= 400) return 0;   // inspecting: the right half is not yours to click (BH)
     if (m == WM_LBUTTONDOWN && (GetKeyState(VK_SHIFT) & 0x8000)) { static int n; if (g_logging && n < 3) { n++; logf_("shift-click identify: shift + left click seen"); } if (id_try_click()) return 0; }   // swallowed: the game never sees the click
     if (m == WM_RBUTTONDOWN) {
         int shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0, ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;

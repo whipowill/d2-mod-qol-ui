@@ -6,7 +6,7 @@
 #define UI_KEYS_H
 static void load_config(void);
 
-static int g_key_stats = 66, g_key_merc = 0, g_key_up = 187, g_key_down = 189, g_key_up2 = 107, g_key_down2 = 109;
+static int g_key_inspect = 73, g_key_stats = 66, g_key_merc = 0, g_key_up = 187, g_key_down = 189, g_key_up2 = 107, g_key_down2 = 109;
 
 static void keys_say(const wchar_t *fmt, int a, int b) {   // fmt takes two ints           // queued; printed on the game thread by mh_game_loop
     if (InterlockedCompareExchange(&g_msg_ready, 2, 0) != 0) return;
@@ -86,17 +86,18 @@ static void keys_reload(void) {
 
 static DWORD WINAPI keys_thread(LPVOID arg) {
     (void)arg;
-    int prev[7] = {0};
+    int prev[8] = {0};
     keys_install_chat();
     for (;;) {
         Sleep(40);
         if (InterlockedExchange(&g_reload_req, 0)) keys_reload();
-        int k[7] = {g_key_up, g_key_down, g_key_up2, g_key_down2, g_key_stats, 27, g_key_merc}, now[7], fire[7];
-        for (int i = 0; i < 7; i++) { now[i] = keys_down(k[i]); fire[i] = now[i] && !prev[i]; prev[i] = now[i]; }
-        if (!(fire[0] | fire[1] | fire[2] | fire[3] | fire[4] | fire[5] | fire[6])) continue;
+        int k[8] = {g_key_up, g_key_down, g_key_up2, g_key_down2, g_key_stats, 27, g_key_merc, g_key_inspect}, now[8], fire[8];
+        for (int i = 0; i < 8; i++) { now[i] = keys_down(k[i]); fire[i] = now[i] && !prev[i]; prev[i] = now[i]; }
+        if (!(fire[0] | fire[1] | fire[2] | fire[3] | fire[4] | fire[5] | fire[6] | fire[7])) continue;
         HMODULE cl = GetModuleHandleA("D2Client.dll");
         if (!cl || !p_player || !keys_focused() || !p_player()) continue;                // not in a game
         if (*(DWORD *)((BYTE *)cl + 0x11C890 + 5 * 4)) continue;                          // chat box open (UI var 5)
+        if (fire[7] && g_inspect_ok) g_iv_req = GetTickCount() | 1;                       // inspect: handled on the game thread a moment later (inspect.h)
         if (fire[4]) g_stats_open = !g_stats_open;
         if (fire[5]) g_stats_open = 0;                                                 // Esc closes the stats panel
         if (fire[6]) { g_stats_merc = !g_stats_merc; g_stats_open = 1; }

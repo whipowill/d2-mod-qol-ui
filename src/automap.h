@@ -9,7 +9,9 @@ typedef DWORD (__stdcall *am_size_t)(void);
 typedef void (__stdcall *am_rect_t)(int x1, int y1, int x2, int y2, DWORD color, DWORD trans);
 static am_line_t p_drawline; static am_size_t p_mapsize; static am_rect_t p_rect;
 static int *p_divisor; static LONG *p_offset;                    // D2Client +0xF34F8 (int), +0x11CF5C (POINT)
-static int g_me_color = 14, g_merc_color = 13, g_npc_color = 13;
+static int g_portal_color = 121;                                  // portals: line + square like the other destinations (-1 = off)
+static struct { DWORD unit, uid; } g_ptl[8]; static int g_nptl;
+static int g_me_color = 14, g_merc_color = 13, g_npc_color = 13, g_team_color = 14, g_other_color = 13;
 static BYTE *g_am_cl;
 
 // Port of BH's AutoTele "Draw Destination": for every area a table (atvectors.h) names up to four things to point at -- next exit, "other" (a preset
@@ -238,6 +240,23 @@ static DWORD am_player_level(DWORD *path_out, DWORD *level_out, DWORD *room1_out
     return *(DWORD *)(level + 0x1D0);
 }
 
+// Town / red / permanent portals the game has in the player's act (object ids 59, 60, 298, 342): found by walking the rooms' unit lists a few times a second.
+static void am_scan_portals(DWORD pl) {
+    readable_reset();
+    DWORD act = *(DWORD *)(pl + 0x1C); int n = 0;
+    if (!act || !readable_c((void *)act, 0x14)) { g_nptl = 0; return; }
+    int guard = 0;
+    for (DWORD room = *(DWORD *)(act + 0x10); room && readable_c((void *)room, 0x80) && guard < 256; room = *(DWORD *)(room + 0x7C), guard++) {
+        int ug = 0;
+        for (DWORD u = *(DWORD *)(room + 0x74); u && readable_c((void *)u, 0xF0) && ug < 4096; u = *(DWORD *)(u + 0xE8), ug++) {
+            if (*(DWORD *)u != 2) continue;                      // objects only
+            DWORD no = *(DWORD *)(u + 4);
+            if ((no == 59 || no == 60 || no == 298 || no == 342) && n < 8) { g_ptl[n].unit = u; g_ptl[n].uid = *(DWORD *)(u + 0x0C); n++; }
+        }
+    }
+    g_nptl = n;
+}
+
 // Runs on the game thread from the game loop (like BH's AutoTele::OnLoop): on entering a level, looks up the destinations.
 static void __cdecl am_loop(void) {
     static DWORD last, tick; static int tries;
@@ -246,6 +265,7 @@ static void __cdecl am_loop(void) {
     last = now;
     DWORD path, level, room1, no = am_player_level(&path, &level, &room1);
     if (no == 0) return;
+    { static DWORD pt; if (g_portal_color >= 0 && now - pt > 400) { pt = now; DWORD pl = p_player(); if (pl && readable((void *)pl, 0x30)) am_scan_portals(pl); } }
     if (no != g_exit_level) { g_name_gen++; g_exit_level = no; memset(g_tgt, 0, sizeof g_tgt); g_nvis = 0; tries = 0; tick = now; }
     if (tries >= 0 && tries < 120 && now - tick > (tries == 0 ? 300u : 2000u)) {   // keep trying (up to ~4 minutes) while something is missing: each attempt only looks at the rooms not yet done
         tick = now; tries++;
@@ -285,6 +305,8 @@ static void __cdecl am_draw(void) {
     if (!p_drawline) return;
     if (g_me_color >= 0 && g_am_cl) *(g_am_cl + 0x11CF74) = (BYTE)g_me_color;   // palette index the game uses for your own cross (read when it draws the next frame)
     if (g_merc_color >= 0 && g_am_cl) { *(g_am_cl + 0x11CF75) = (BYTE)g_merc_color; *(g_am_cl + 0x11CF78) = (BYTE)g_merc_color; }   // units you own (merc, minions): entry 75 when you are not in a party, 78 when you are
+    if (g_team_color >= 0 && g_am_cl) *(g_am_cl + 0x11CF77) = (BYTE)g_team_color;   // other players in your party
+    if (g_other_color >= 0 && g_am_cl) *(g_am_cl + 0x11CF75) = (BYTE)g_other_color; // other players NOT in your party (the same entry also colours your minions when you are not in a party; written after minion_color)
     if (g_npc_color >= 0 && g_am_cl) *(g_am_cl + 0x11CF7A) = (BYTE)g_npc_color;   // town NPCs (the game uses entry 7A for monsters that are NPCs)
     DWORD path, level, room1, no = am_player_level(&path, &level, &room1);
     if (no == 0) return;
@@ -297,6 +319,15 @@ static void __cdecl am_draw(void) {
         p_drawline(px, py, ex, ey, (DWORD)g_am_color[i], (DWORD)-1);
         am_square(ex, ey, g_am_color[i]);
     }
+    if (g_portal_color >= 0)
+        for (int i = 0; i < g_nptl; i++) {                       // validate each remembered portal: still the same object?
+            DWORD u = g_ptl[i].unit;
+            if (!readable((void *)u, 0xF0) || *(DWORD *)u != 2 || *(DWORD *)(u + 0x0C) != g_ptl[i].uid) continue;
+            DWORD op = *(DWORD *)(u + 0x2C); if (!op || !readable((void *)op, 0x14)) continue;
+            int ex, ey; am_to_screen((int)*(DWORD *)(op + 0x0C), (int)*(DWORD *)(op + 0x10), &ex, &ey);
+            p_drawline(px, py, ex, ey, (DWORD)g_portal_color, (DWORD)-1);
+            am_square(ex, ey, g_portal_color);
+        }
 }
 
 static DWORD WINAPI automap_thread(LPVOID arg) {
