@@ -122,4 +122,24 @@ __attribute__((unused)) static long sig_find_chatsend(const unsigned char *buf, 
     long a = qt_find(buf, n, 0, n, pat, (int)(sizeof pat / sizeof *pat), &c);
     return c == 1 ? a + 16 : -1;
 }
+// The text-colour operands (`push imm8`) of the automap name labels in the unit-draw routine (D2Client +0x72440..+0x73151). The operand byte is a wildcard in the
+// patterns, so a patched file still matches. which: 0 = NPC label (game: 4 gold), 1 = party member (2 green), 2 = other player (1 red), 3 = owner name drawn
+// above a non-party revived minion (1 red). Returns the offset of the operand byte (and its value in *cur), -1 unless the pattern matches exactly once.
+__attribute__((unused)) static long sig_find_labelcolor(const unsigned char *buf, size_t n, int which, int *cur) {
+    static const short npc[]   = {0x6A,0x00,0x8B,0xE8,0x6A,-1,0x8D,0x43,0xF6,0x50,0x8B,0xCD,0xE8,-1,-1,-1,-1};
+    static const short party[] = {0x38,0x44,0x24,0x10,0x75,0x04,0x6A,-1,0xEB,0x02,0x6A,-1,0x53,0x57,0x56,0xE8,-1,-1,-1,-1};   // party and other share one match
+    static const short rev[]   = {0x66,0x39,0x44,0x24,0x1C,0x74,0x76,0x6A,-1,0x53,0x57,0x55,0xE8,-1,-1,-1,-1};
+    const short *p; int len, add, c = 0;
+    switch (which) {
+        case 0: p = npc;   len = (int)(sizeof npc / sizeof *npc);     add = 5;  break;
+        case 1: p = party; len = (int)(sizeof party / sizeof *party); add = 7;  break;
+        case 2: p = party; len = (int)(sizeof party / sizeof *party); add = 11; break;
+        case 3: p = rev;   len = (int)(sizeof rev / sizeof *rev);     add = 8;  break;
+        default: return -1;
+    }
+    long a = qt_find(buf, n, 0, n, p, len, &c);
+    if (c != 1) return -1;
+    if (cur) *cur = buf[a + add];
+    return a + add;
+}
 #endif

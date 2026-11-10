@@ -113,6 +113,7 @@ static sr_c g_src[64];
 // Called after the game has built one property line in `wout` (a 128-character buffer).
 static void __cdecl sr_hook(int nstat, wchar_t *wout, DWORD item, int par) {
     if (!wout || !item || !readable((void *)item, 0x40) || *(DWORD *)item != 4) return;
+    if (!master_on) return;
     if (!g_stat_ranges && !(GetKeyState(VK_CONTROL) & 0x8000)) return;   // item_stat_ranges=0: only while Ctrl is held (BH)
     DWORD data = *(DWORD *)(item + 0x14); if (!data || !readable((void *)data, 0x40)) return;
     DWORD uid = *(DWORD *)(item + 0x0C), quality = *(DWORD *)data, flags = *(DWORD *)(data + 0x18) & 0x4000000u;

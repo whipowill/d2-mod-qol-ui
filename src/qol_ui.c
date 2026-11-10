@@ -16,11 +16,12 @@
 static FILE *g_log;
 static int g_logging = 0, g_filter_on = 1, g_filter_level = 1, g_ping_level = 5, g_hide_blocked = 1;
 static volatile LONG g_lines;
+static int master_on = 1;                                         // [qol_ui] enabled; every feature below is gated on it at run time
 static int g_exit_lines = 1, g_shift_id = 1, g_show_gold = 0, g_item_move_cfg = 1, g_remember_filter = 1;
 #define MAX_LINES 20000
 
 static void logf_(const char *fmt, ...) {
-    if (!g_log || InterlockedIncrement(&g_lines) > MAX_LINES) return;
+    if (!g_logging || !g_log || InterlockedIncrement(&g_lines) > MAX_LINES) return;
     va_list ap; va_start(ap, fmt);
     vfprintf(g_log, fmt, ap); fputc('\n', g_log);
     va_end(ap);                                      // flushed off-thread by log_flusher (disk I/O on the game thread spikes)
@@ -143,7 +144,10 @@ static LONG CALLBACK crash_handler(EXCEPTION_POINTERS *ep) {
     return EXCEPTION_CONTINUE_SEARCH;
 }
 
-static int master_on = 1;
+// A [automap] cross colour: the current key name, else its earlier name (kept so old ini files still work), else the default.
+static int cross_color(const char *key, const char *old, int def, const char *path) {
+    return GetPrivateProfileIntA("automap", key, GetPrivateProfileIntA("automap", old, def, path), path);
+}
 static void load_config(void) {
     char path[MAX_PATH]; GetCurrentDirectoryA(MAX_PATH, path); lstrcatA(path, "\\qol_ui.ini");
     int master = GetPrivateProfileIntA("qol_ui", "enabled", 1, path);
@@ -174,7 +178,7 @@ static void load_config(void) {
     g_remember_filter = GetPrivateProfileIntA("lootfilter", "remember_filter_level", 1, path);
     g_item_move_cfg = master && GetPrivateProfileIntA("features", "item_move", 1, path);
     g_shift_id = master && GetPrivateProfileIntA("features", "shift_click_id", 1, path);
-    g_show_items_cfg = GetPrivateProfileIntA("features", "always_show_items", 0, path);
+    g_show_items_cfg = master && GetPrivateProfileIntA("features", "always_show_items", 0, path);
     g_key_show_items = GetPrivateProfileIntA("keys", "show_items_key", 76, path);
     g_key_inspect = GetPrivateProfileIntA("keys", "inspect_key", 73, path);
     GetPrivateProfileStringA("keys", "reload_command", "reload", g_reload_cmd, (DWORD)sizeof g_reload_cmd, path);
@@ -185,14 +189,29 @@ static void load_config(void) {
     g_key_down = GetPrivateProfileIntA("keys", "filter_down_key", GetPrivateProfileIntA("keys", "tier_down_key", 189, path), path);
     g_key_up2 = GetPrivateProfileIntA("keys", "filter_up_key2", GetPrivateProfileIntA("keys", "tier_up_key2", 107, path), path);
     g_key_down2 = GetPrivateProfileIntA("keys", "filter_down_key2", GetPrivateProfileIntA("keys", "tier_down_key2", 109, path), path);
-    g_merc_color = GetPrivateProfileIntA("automap", "minion_color", GetPrivateProfileIntA("automap", "merc_color", 13, path), path);
-    g_npc_color = GetPrivateProfileIntA("automap", "npc_color", g_merc_color, path);   // unset: the same as minion_color
-    g_me_color = GetPrivateProfileIntA("automap", "me_color", 14, path);
-    g_team_color = GetPrivateProfileIntA("automap", "team_color", g_me_color, path);          // unset: the same as you
-    g_other_color = GetPrivateProfileIntA("automap", "other_player_color", g_npc_color, path);   // unset: the same as NPCs
+    g_merc_color = cross_color("minion_cross_color", "minion_color", 29, path);        // the old key names (without _cross_) are still read
+    g_npc_color = cross_color("npc_cross_color", "npc_color", 13, path);
+    g_me_color = cross_color("me_cross_color", "me_color", 32, path);
+    g_team_color = cross_color("team_cross_color", "team_color", 125, path);
+    g_portal_cross = GetPrivateProfileIntA("automap", "portal_cross_color", 158, path);
+    g_teammin_color = cross_color("team_minion_cross_color", "team_minion_color", 120, path);
+    g_other_color = cross_color("other_player_cross_color", "other_player_color", 10, path);
+    {                                                                                       // name labels: the palette index of the matching cross by default; the game only has a dozen text colours, the nearest is used
+        int *lv[3] = {&g_lbl_npc, &g_lbl_team, &g_lbl_other}, dv[3] = {256 + 4, 256 + 2, 256 + 1};   // the game's own: gold, green, red
+        static const char *lk[3] = {"npc_label_color", "team_label_color", "other_player_label_color"};
+        for (int i = 0; i < 3; i++) {
+            int def = i == 2 ? GetPrivateProfileIntA("automap", "other_label_color", dv[i], path) : dv[i];   // other_label_color is the key's earlier name, still read
+            char t[32]; GetPrivateProfileStringA("automap", lk[i], "", t, (DWORD)sizeof t, path);
+            int v = def;
+            if ((t[0] == 't' || t[0] == 'T') && t[1] >= '0' && t[1] <= '9') { int n = atoi(t + 1); v = n <= 12 ? 256 + n : -1; }   // "t4": that text colour itself
+            else if (t[0] >= '0' && t[0] <= '9') { v = atoi(t); if (v > 255) v = -1; }
+            else if (t[0] == '-') v = -1;
+            *lv[i] = v;                                                      // -1 = leave the game's colour
+        }
+    }
     static const char *ck[AM_SLOTS] = {"next_color", "other_color", "wp_color", "prev_color", "extra_color"};
-    for (int i = 0; i < AM_SLOTS; i++) g_am_color[i] = GetPrivateProfileIntA("automap", ck[i], g_am_color[i], path);
-    g_portal_color = GetPrivateProfileIntA("automap", "portal_color", g_am_color[AM_WP], path);   // unset: the same as the waypoint
+    static const int cdef[AM_SLOTS] = {10, 13, 154, 5, 24};                   // BH's Next / Other / WP / Prev / Other Extra
+    for (int i = 0; i < AM_SLOTS; i++) g_am_color[i] = GetPrivateProfileIntA("automap", ck[i], cdef[i], path);
 }
 
 static DWORD WINAPI worker(LPVOID arg) {
@@ -205,14 +224,14 @@ static DWORD WINAPI worker(LPVOID arg) {
     }
     AddVectoredExceptionHandler(1, crash_handler);
     logf_("qol_ui started: lootfilter %s", g_filter_on ? "on" : "off");
-    if (g_filter_on) CreateThread(NULL, 0, lootfilter_thread, NULL, 0, NULL);
-    if (g_exit_lines || g_filter_on) CreateThread(NULL, 0, automap_thread, NULL, 0, NULL);
-    if (master_on && g_key_inspect) CreateThread(NULL, 0, inspect_thread, NULL, 0, NULL);
-    if (master_on && (g_show_items_cfg || g_key_show_items)) CreateThread(NULL, 0, showitems_thread, NULL, 0, NULL);
-    if (master_on) CreateThread(NULL, 0, statrange_thread, NULL, 0, NULL);
-    if (g_shift_id || g_item_move_cfg) CreateThread(NULL, 0, idclick_thread, NULL, 0, NULL);
-    if (master_on) CreateThread(NULL, 0, keys_thread, NULL, 0, NULL);
-    if (g_clock || g_info || g_buffs) CreateThread(NULL, 0, hud_thread, NULL, 0, NULL);
+    CreateThread(NULL, 0, lootfilter_thread, NULL, 0, NULL);          // every feature is installed whatever its setting is and gated at run time, so .reload can switch it on or off
+    CreateThread(NULL, 0, automap_thread, NULL, 0, NULL);
+    CreateThread(NULL, 0, inspect_thread, NULL, 0, NULL);
+    CreateThread(NULL, 0, showitems_thread, NULL, 0, NULL);
+    CreateThread(NULL, 0, statrange_thread, NULL, 0, NULL);
+    CreateThread(NULL, 0, idclick_thread, NULL, 0, NULL);
+    CreateThread(NULL, 0, keys_thread, NULL, 0, NULL);
+    CreateThread(NULL, 0, hud_thread, NULL, 0, NULL);
     return 0;
 }
 

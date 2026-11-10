@@ -66,6 +66,16 @@ static void bf_box(const bf_state *s, int x, int y) {            // a picture-le
     p_hsize(old);
 }
 
+// The game owns the cell file's memory and may free / reuse it: a stale pointer draws blue streaks, so only draw a picture whose cell still looks right. (Do NOT call LoadCellFile again to refresh: it returns a NEW copy every call, i.e. a leak of one file per call.)
+static int bf_cell_ok(int frame) {
+    if (!g_bcf || !readable(g_bcf, 0x1C) || *(DWORD *)(g_bcf + 0x14) != (DWORD)g_bcells) return 0;
+    if (!readable(g_bcf + 0x18, 4 * (size_t)g_bcells)) return 0;
+    DWORD c = *(DWORD *)(g_bcf + 0x18 + 4 * frame);
+    if (!c || !readable((void *)c, 0x20)) return 0;
+    DWORD len = *(DWORD *)(c + 0x1C);                            // DC6 frame header: w +4, h +8, data length +0x1C
+    return *(DWORD *)(c + 4) == (DWORD)g_bw && *(DWORD *)(c + 8) == (DWORD)g_bh && len > 0 && len < 0x10000 && readable((void *)c, 0x20 + len);
+}
+
 static void buffs_draw(int sw, int sh) {
     if (!g_buffs || !p_bstate || !p_player) return;
     if (!g_binit) bf_init();
@@ -83,7 +93,7 @@ static void buffs_draw(int sw, int sh) {
         const bf_state *s = &bf_states[g_bactive[k]];
         if (nb % 9 == 0 && nb != 0 && !s->debuff) { bx = 117 + g_bside; by -= g_bh + g_bgap; }
         int x = s->debuff ? dx : bx, y = s->debuff ? dy : by;
-        if (g_bcf && s->frame >= 0 && s->frame < g_bcells) {
+        if (g_bcf && s->frame >= 0 && s->frame < g_bcells && bf_cell_ok(s->frame)) {
             static BYTE ctx[0x100];                              // the game may use more of a CellContext than BH's 0x38-byte struct shows: keep it off the stack and roomy
             memset(ctx, 0, sizeof ctx); *(DWORD *)ctx = (DWORD)s->frame; *(BYTE **)(ctx + 0x34) = g_bcf;
             p_bdraw(ctx, x, y, -1, 5, s->debuff ? g_dtint : g_btint);

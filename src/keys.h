@@ -72,7 +72,12 @@ static int keys_focused(void) {
 }
 
 static void keys_reload(void) {
+    int was_show = g_show_items_cfg;
     load_config();
+    if (g_logging && !g_log) { g_log = fopen("qol_ui.log", "a"); if (g_log) { setvbuf(g_log, NULL, _IOFBF, 1 << 16); CreateThread(NULL, 0, log_flusher, NULL, 0, NULL); } }   // logging switched on after start
+    am_label_apply();                                               // the label colours are patched into the game's code: write the new ones
+    if (g_show_items_cfg != was_show) InterlockedExchange(&g_show_items, g_show_items_cfg ? 1 : 0);   // always_show_items changed (a key toggle in between is kept otherwise)
+    g_name_gen++;                                                   // item labels may depend on the settings: forget the cached ones
     char *cfg; size_t cn; int rules = -1;
     if (g_fi && mh_read_file("qol_ui_filter.cfg", &cfg, &cn)) {
         fi_set *s = fi_parse(cfg, cn, NULL, NULL, 0); free(cfg);
@@ -93,6 +98,7 @@ static DWORD WINAPI keys_thread(LPVOID arg) {
     for (;;) {
         Sleep(40);
         if (InterlockedExchange(&g_reload_req, 0)) keys_reload();
+        if (!master_on) { memset(prev, 0, sizeof prev); continue; }                    // [qol_ui] enabled=0: only the reload command works
         int k[9] = {g_key_up, g_key_down, g_key_up2, g_key_down2, g_key_stats, 27, g_key_merc, g_key_inspect, g_key_show_items}, now[9], fire[9];
         for (int i = 0; i < 9; i++) { now[i] = keys_down(k[i]); fire[i] = now[i] && !prev[i]; prev[i] = now[i]; }
         if (!(fire[0] | fire[1] | fire[2] | fire[3] | fire[4] | fire[5] | fire[6] | fire[7] | fire[8])) continue;

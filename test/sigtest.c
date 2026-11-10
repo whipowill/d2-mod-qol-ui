@@ -38,6 +38,12 @@ int main(int argc, char **argv) {
         int ok = !strcmp(argv[1], "draw-orig") ? (g == 25 && !patched) : !strcmp(argv[1], "draw-patched") ? (g == 25 && patched == 1) : g < 0;
         printf("%s %s (offset %ld)\n", argv[1], ok ? "ok" : "FAIL", g); return !ok;
     }
+    if (!strncmp(argv[1], "lbl", 3)) {                        // lbl<0-3>-ok|none <hex>: the label colour sites; the operand offset is NPC 5, party 7, other 11, owner 8
+        int w = argv[1][3] - '0'; int cur = -1; long g = sig_find_labelcolor(big, n, w, &cur);
+        static const int want[4] = {5, 7, 11, 8};
+        int ok = !strcmp(argv[1] + 5, "ok") ? (g == want[w] && cur == (int)big[g]) : g < 0;
+        printf("%s %s (offset %ld)\n", argv[1], ok ? "ok" : "FAIL", g); return !ok;
+    }
     if (!strncmp(argv[1], "map-", 4)) {
         long g = sig_find_automap(big, n, &patched);
         int ok = !strcmp(argv[1], "map-orig") ? (g == 29 && !patched) : !strcmp(argv[1], "map-patched") ? (g == 29 && patched == 1) : g < 0;

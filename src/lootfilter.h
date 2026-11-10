@@ -82,7 +82,7 @@ static volatile LONG g_name_gen;                                   // bumped whe
 
 // Called by the stub at the game's "item name built" point: `name` is the game's wide-character name text, `item` the item unit.
 static void __cdecl mh_item_name(wchar_t *name, DWORD item) {
-    if (!g_fi || !name || !item || !readable((void *)item, 0x30)) return;
+    if (!g_filter_on || !g_fi || !name || !item || !readable((void *)item, 0x30)) return;
     DWORD data = *(DWORD *)(item + 0x14);
     if (!data || !readable((void *)data, 0x30)) return;
     DWORD hash = 2166136261u;
@@ -124,7 +124,7 @@ static int __cdecl mh_gold_skip(const wchar_t *buf) {
     return r;
 }
 static int mh_gold_skip_inner(const wchar_t *buf) {
-    if (!g_fi || !buf || !readable(buf, 8)) return 0;
+    if (!g_filter_on || !g_fi || !buf || !readable(buf, 8)) return 0;
     if (!g_show_gold) return 1;                                      // show_gold_amount=0: no gold labels at all
     if (!g_hide_blocked) return 0;
     int amount = 0, got = 0;                                         // read the amount back out of the text ("<colour code>900 Gold")
@@ -288,7 +288,7 @@ static void __cdecl mh_game_loop(void) {
     am_loop();
     id_tick();
     if (g_msg_ready == 1 && p_print) { p_print(g_msg, 0); InterlockedExchange(&g_msg_ready, 0); }
-    if (!g_fi || !(g_alerts || g_dots_on || g_hide_blocked) || !p_print || !p_itemname) return;
+    if (!g_filter_on || !g_fi || !(g_alerts || g_dots_on || g_hide_blocked) || !p_print || !p_itemname) return;
     DWORD now = GetTickCount();
     if (now - last < 100) return;                                    // a few scans a second are plenty
     last = now;
@@ -326,7 +326,6 @@ static void mh_install_loop(BYTE *code, DWORD size, BYTE *base) {
 
 static DWORD WINAPI lootfilter_thread(LPVOID arg) {
     (void)arg;
-    if (!g_filter_on) return 0;
     HMODULE cl = NULL, cm = NULL, lang = NULL;
     for (int i = 0; i < 6000 && !(cl && cm && lang); i++) { cl = GetModuleHandleA("D2Client.dll"); cm = GetModuleHandleA("D2Common.dll"); lang = GetModuleHandleA("D2Lang.dll"); if (!(cl && cm && lang)) Sleep(100); }
     if (!cl || !cm || !lang) { logf_("lootfilter: game modules not loaded; off"); return 0; }
@@ -375,7 +374,7 @@ static DWORD WINAPI lootfilter_thread(LPVOID arg) {
         patch_bytes(site, jmp, 6);
         logf_("lootfilter: item names now follow qol_ui_filter.cfg (D2Client +%lx)", (unsigned long)(site - base));
         mh_install_gold(code, sec->Misc.VirtualSize, base);
-        if (g_alerts || g_dots_on || g_hide_blocked || g_exit_lines || g_shift_id || g_item_move_cfg) mh_install_loop(code, sec->Misc.VirtualSize, base);
+        mh_install_loop(code, sec->Misc.VirtualSize, base);
         return 0;
     }
     logf_("lootfilter: the item-name code was not found in D2Client (or appears more than once); off");

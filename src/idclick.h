@@ -77,7 +77,7 @@ static int id_try_click(void) {
     return 1;
 }
 
-#define MV_TRACE(msg) do { static int n_; if (g_logging && n_ < 300) { n_++; logf_("item move: %s", msg); } } while (0)
+#define MV_TRACE(msg) do { static int n_; if (g_logging && n_ < 20) { n_++; logf_("item move: %s", msg); } } while (0)
 // Where the client currently has an item (location, cell). 0 if it is not in the player's inventory list.
 static int mv_where(DWORD id, DWORD *loc, DWORD *x, DWORD *y) {
     DWORD pl = p_player ? p_player() : 0;
@@ -125,7 +125,6 @@ static void mv_tick(void) {
             return;
         }
     }
-    MV_TRACE("cursor holds the item; putting down");
     if (g_mv_dest == 0xFF) { BYTE pk[5] = {0x17}; *(DWORD *)(pk + 1) = g_mv_item; p_idsend(5, 1, pk); }                            // drop on the ground
     else { BYTE pk[17] = {0x18}; *(DWORD *)(pk + 1) = g_mv_item; *(DWORD *)(pk + 5) = g_mv_x; *(DWORD *)(pk + 9) = g_mv_y; *(DWORD *)(pk + 13) = g_mv_dest; p_idsend(17, 1, pk); }   // put in a container
     if (g_mv_dest != 0xFF) { g_mv_wait_item = g_mv_item; g_mv_wait_from = GetTickCount(); g_mv_wait_loc = g_mv_dest; g_mv_wait_x = g_mv_x; g_mv_wait_y = g_mv_y; }
@@ -212,7 +211,6 @@ static int mv_try_click(int shift, int ctrl) {
     } else return 0;
     BYTE pk[5] = {0x19}; *(DWORD *)(pk + 1) = found; p_idsend(5, 1, pk);   // pick it up; the put-down follows one tick later
     g_mv_src_loc = mv_loc[source]; g_mv_src_x = (DWORD)fx; g_mv_src_y = (DWORD)fy;
-    MV_TRACE("pickup sent");
     g_mv_item = found; g_mv_x = (DWORD)dx; g_mv_y = (DWORD)dy; g_mv_dest = dest; g_mv_at = GetTickCount() + 30;
     MV_WHY(ctrl ? "dropping on the ground" : "moving the item");
     return 1;

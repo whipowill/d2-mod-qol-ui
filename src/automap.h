@@ -9,9 +9,9 @@ typedef DWORD (__stdcall *am_size_t)(void);
 typedef void (__stdcall *am_rect_t)(int x1, int y1, int x2, int y2, DWORD color, DWORD trans);
 static am_line_t p_drawline; static am_size_t p_mapsize; static am_rect_t p_rect;
 static int *p_divisor; static LONG *p_offset;                    // D2Client +0xF34F8 (int), +0x11CF5C (POINT)
-static int g_portal_color = 121;                                  // portals: line + square like the other destinations (-1 = off)
-static struct { DWORD unit, uid; } g_ptl[8]; static int g_nptl;
-static int g_me_color = 14, g_merc_color = 13, g_npc_color = 13, g_team_color = 14, g_other_color = 13;
+#include "palette.h"
+static int g_lbl_npc = -1, g_lbl_team = -1, g_lbl_other = -1;   // text colours (0..12) of the automap name labels, -1 = the game's own
+static int g_me_color = 32, g_merc_color = 29, g_npc_color = 13, g_team_color = 125, g_other_color = 10, g_teammin_color = 120, g_portal_cross = 158;
 static BYTE *g_am_cl;
 
 // Port of BH's AutoTele "Draw Destination": for every area a table (atvectors.h) names up to four things to point at -- next exit, "other" (a preset
@@ -21,7 +21,7 @@ static BYTE *g_am_cl;
 // like BH's FindPresetLocation); exits are tile presets or, on wilderness borders, the walkable gap on the border with the neighbouring level.
 #include "atvectors.h"
 enum { AM_NEXT, AM_OTHER, AM_WP, AM_PREV, AM_EXTRA, AM_SLOTS };
-static int g_am_color[AM_SLOTS] = {10, 13, 121, 5, 24};        // BH's Next / Other / WP / Prev / Other Extra
+static int g_am_color[AM_SLOTS] = {10, 13, 154, 5, 24};        // BH's Next / Other / WP / Prev / Other Extra
 static struct { int x, y, ok; } g_tgt[AM_SLOTS];
 static DWORD g_exit_level = 0xFFFFFFFFu;                         // the level the targets belong to
 
@@ -240,23 +240,6 @@ static DWORD am_player_level(DWORD *path_out, DWORD *level_out, DWORD *room1_out
     return *(DWORD *)(level + 0x1D0);
 }
 
-// Town / red / permanent portals the game has in the player's act (object ids 59, 60, 298, 342): found by walking the rooms' unit lists a few times a second.
-static void am_scan_portals(DWORD pl) {
-    readable_reset();
-    DWORD act = *(DWORD *)(pl + 0x1C); int n = 0;
-    if (!act || !readable_c((void *)act, 0x14)) { g_nptl = 0; return; }
-    int guard = 0;
-    for (DWORD room = *(DWORD *)(act + 0x10); room && readable_c((void *)room, 0x80) && guard < 256; room = *(DWORD *)(room + 0x7C), guard++) {
-        int ug = 0;
-        for (DWORD u = *(DWORD *)(room + 0x74); u && readable_c((void *)u, 0xF0) && ug < 4096; u = *(DWORD *)(u + 0xE8), ug++) {
-            if (*(DWORD *)u != 2) continue;                      // objects only
-            DWORD no = *(DWORD *)(u + 4);
-            if ((no == 59 || no == 60 || no == 298 || no == 342) && n < 8) { g_ptl[n].unit = u; g_ptl[n].uid = *(DWORD *)(u + 0x0C); n++; }
-        }
-    }
-    g_nptl = n;
-}
-
 // Runs on the game thread from the game loop (like BH's AutoTele::OnLoop): on entering a level, looks up the destinations.
 static void __cdecl am_loop(void) {
     static DWORD last, tick; static int tries;
@@ -265,7 +248,6 @@ static void __cdecl am_loop(void) {
     last = now;
     DWORD path, level, room1, no = am_player_level(&path, &level, &room1);
     if (no == 0) return;
-    { static DWORD pt; if (g_portal_color >= 0 && now - pt > 400) { pt = now; DWORD pl = p_player(); if (pl && readable((void *)pl, 0x30)) am_scan_portals(pl); } }
     if (no != g_exit_level) { g_name_gen++; g_exit_level = no; memset(g_tgt, 0, sizeof g_tgt); g_nvis = 0; tries = 0; tick = now; }
     if (tries >= 0 && tries < 120 && now - tick > (tries == 0 ? 300u : 2000u)) {   // keep trying (up to ~4 minutes) while something is missing: each attempt only looks at the rooms not yet done
         tick = now; tries++;
@@ -301,17 +283,30 @@ static void am_draw_dots(int px, int py) {                     // BH: items flag
     }
 }
 
+// The game's cross-colour table (D2Client +0x11CF70..7F). Written every frame; a setting of -1, or the DLL being disabled, puts the game's own value back.
+static void am_cross_colors(void) {
+    static BYTE orig[16]; static int have;
+    if (!g_am_cl) return;
+    BYTE *t = g_am_cl + 0x11CF70;
+    if (!have) { memcpy(orig, t, 16); have = 1; }
+#define AMC(i, v) do { int c_ = master_on ? (v) : -1; t[i] = c_ >= 0 ? (BYTE)c_ : orig[i]; } while (0)
+    AMC(4, g_me_color);                                                   // you
+    AMC(8, g_merc_color);                                                 // units you own while you are in a party (merc, minions)
+    AMC(5, g_other_color >= 0 ? g_other_color : g_merc_color);            // other players NOT in your party; the same entry colours your minions when you are not in a party (the player colour wins)
+    AMC(7, g_team_color);                                                 // other players in your party
+    AMC(9, g_teammin_color);                                              // minions of the players in your party (drawn only while the game's automap 'show party' option is on)
+    AMC(0xC, g_portal_cross);                                             // portal crosses (town / red portals: objects 0x3B, 0x3C)
+    AMC(0xA, g_npc_color);                                                // town NPCs (the game uses entry 7A for monsters that are NPCs)
+#undef AMC
+}
+
 static void __cdecl am_draw(void) {
     if (!p_drawline) return;
-    if (g_me_color >= 0 && g_am_cl) *(g_am_cl + 0x11CF74) = (BYTE)g_me_color;   // palette index the game uses for your own cross (read when it draws the next frame)
-    if (g_merc_color >= 0 && g_am_cl) { *(g_am_cl + 0x11CF75) = (BYTE)g_merc_color; *(g_am_cl + 0x11CF78) = (BYTE)g_merc_color; }   // units you own (merc, minions): entry 75 when you are not in a party, 78 when you are
-    if (g_team_color >= 0 && g_am_cl) *(g_am_cl + 0x11CF77) = (BYTE)g_team_color;   // other players in your party
-    if (g_other_color >= 0 && g_am_cl) *(g_am_cl + 0x11CF75) = (BYTE)g_other_color; // other players NOT in your party (the same entry also colours your minions when you are not in a party; written after minion_color)
-    if (g_npc_color >= 0 && g_am_cl) *(g_am_cl + 0x11CF7A) = (BYTE)g_npc_color;   // town NPCs (the game uses entry 7A for monsters that are NPCs)
+    am_cross_colors();
     DWORD path, level, room1, no = am_player_level(&path, &level, &room1);
     if (no == 0) return;
     int px, py; am_to_screen(*(WORD *)(path + 2), *(WORD *)(path + 6), &px, &py);
-    if (g_fi && g_dots_on) am_draw_dots(px, py);
+    if (g_filter_on && g_fi && g_dots_on) am_draw_dots(px, py);
     if (!g_exit_lines || no != g_exit_level) return;
     for (int i = 0; i < AM_SLOTS; i++) {
         if (!g_tgt[i].ok || g_am_color[i] < 0) continue;
@@ -319,15 +314,40 @@ static void __cdecl am_draw(void) {
         p_drawline(px, py, ex, ey, (DWORD)g_am_color[i], (DWORD)-1);
         am_square(ex, ey, g_am_color[i]);
     }
-    if (g_portal_color >= 0)
-        for (int i = 0; i < g_nptl; i++) {                       // validate each remembered portal: still the same object?
-            DWORD u = g_ptl[i].unit;
-            if (!readable((void *)u, 0xF0) || *(DWORD *)u != 2 || *(DWORD *)(u + 0x0C) != g_ptl[i].uid) continue;
-            DWORD op = *(DWORD *)(u + 0x2C); if (!op || !readable((void *)op, 0x14)) continue;
-            int ex, ey; am_to_screen((int)*(DWORD *)(op + 0x0C), (int)*(DWORD *)(op + 0x10), &ex, &ey);
-            p_drawline(px, py, ex, ey, (DWORD)g_portal_color, (DWORD)-1);
-            am_square(ex, ey, g_portal_color);
-        }
+}
+
+// The game draws the NPC / party / other-player name labels with fixed text colours (immediate bytes in its unit-draw routine); change those bytes.
+// A palette index (the colour of a cross) -> the nearest of the game's text colours (the text only has a dozen). Approximate RGBs of the text colours.
+static int am_text_for_palette(int idx) {
+    static const unsigned char tc[][4] = {{0, 255, 255, 255}, {1, 255, 64, 64}, {2, 0, 255, 0}, {3, 100, 100, 255}, {4, 199, 179, 119}, {5, 105, 105, 105},
+                                          {7, 200, 160, 90}, {8, 255, 168, 0}, {9, 255, 255, 100}, {10, 0, 128, 0}, {11, 170, 0, 255}};   // 6 (black) is left out: unreadable on the map
+    int best = 0, bd = 1 << 30;
+    for (int i = 0; i < (int)(sizeof tc / sizeof *tc); i++) {
+        int dr = am_pal[idx][0] - tc[i][1], dg = am_pal[idx][1] - tc[i][2], db = am_pal[idx][2] - tc[i][3], d = dr * dr + dg * dg + db * db;
+        if (d < bd) { bd = d; best = tc[i][0]; }
+    }
+    return best;
+}
+static BYTE *g_lbl_site[4]; static BYTE g_lbl_orig[4];            // the patched operand bytes and the game's own values (found once; re-applied on .reload)
+static void am_label_apply(void) {
+    static const int *val[4] = {&g_lbl_npc, &g_lbl_team, &g_lbl_other, &g_lbl_other};
+    int n = 0;
+    for (int i = 0; i < 4; i++) {
+        if (!g_lbl_site[i]) continue;
+        int v0 = master_on ? *val[i] : -1;                                              // -1 game's own; 0..255 a palette colour (nearest text colour); 256 + n the text colour n itself
+        BYTE v = v0 < 0 ? g_lbl_orig[i] : v0 >= 256 ? (BYTE)(v0 - 256) : (BYTE)am_text_for_palette(v0);
+        if (*g_lbl_site[i] != v) patch_bytes(g_lbl_site[i], &v, 1);
+        n++;
+    }
+    logf_("automap: name labels: NPC text colour %d, party %d, other players %d (%d sites)", g_lbl_site[0] ? *g_lbl_site[0] : -1, g_lbl_site[1] ? *g_lbl_site[1] : -1, g_lbl_site[2] ? *g_lbl_site[2] : -1, n);
+}
+static void am_label_colors(BYTE *code, size_t size) {          // find the four sites once (always, so a later .reload can use them), then apply the settings
+    for (int i = 0; i < 4; i++) {
+        int cur = 0; long at = sig_find_labelcolor(code, size, i, &cur);
+        if (at < 0) { logf_("automap: label colour site %d not found (or more than once); left alone", i); continue; }
+        g_lbl_site[i] = code + at; g_lbl_orig[i] = (BYTE)cur;
+    }
+    am_label_apply();
 }
 
 static DWORD WINAPI automap_thread(LPVOID arg) {
@@ -348,6 +368,7 @@ static DWORD WINAPI automap_thread(LPVOID arg) {
     for (int k = 0; k < nt->FileHeader.NumberOfSections; k++, sec++) {
         if (!(sec->Characteristics & IMAGE_SCN_MEM_EXECUTE)) continue;
         BYTE *code = base + sec->VirtualAddress; int patched = 0;
+        if (g_lbl_npc >= 0 || g_lbl_team >= 0 || g_lbl_other >= 0) { if (sig_find_labelcolor(code, sec->Misc.VirtualSize, 0, NULL) >= 0 || sig_find_labelcolor(code, sec->Misc.VirtualSize, 1, NULL) >= 0) am_label_colors(code, sec->Misc.VirtualSize); }   // only in the section that holds the unit-draw routine
         long at = sig_find_automap(code, sec->Misc.VirtualSize, &patched);
         if (at < 0) continue;
         if (patched) { logf_("automap: hook already installed"); return 0; }

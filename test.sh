@@ -51,5 +51,20 @@ done
 .out/sigtest show1-patched ${SH1/391dc4c8bc6f/e8aabbccdd90}
 .out/sigtest show2-patched ${SH2/8b44241c85c0/e8aabbccdd90}
 .out/sigtest show3-patched ${SH3/8b0dc4c8bc6f/e8aabbccdd90}
+LBL0=6a008be86a048d43f6508bcde897a2f9ff
+LBL1=3844241075046a02eb026a01535756e80d95f9ff
+LBL3=663944241c74766a01535755e87295f9ff
+.out/sigtest lbl0-ok $LBL0
+.out/sigtest lbl0-ok ${LBL0/6a048d/6a0c8d}
+.out/sigtest lbl0-none ${LBL0}${LBL0}
+.out/sigtest lbl0-none ${LBL0:0:20}
+for w in 1 2; do
+  .out/sigtest lbl$w-ok $LBL1
+  .out/sigtest lbl$w-ok ${LBL1/6a02eb026a01/6a07eb026a05}
+  .out/sigtest lbl$w-none ${LBL1}${LBL1}
+done
+.out/sigtest lbl3-ok $LBL3
+.out/sigtest lbl3-ok ${LBL3/6a0153/6a0953}
+.out/sigtest lbl3-none ${LBL3}${LBL3}
 gcc -O1 -Wall -Wextra -Isrc -o .out/filter_test test/filter_test.c src/filter.c && .out/filter_test
 gcc -O1 -Wall -Wextra -Isrc -o .out/itemdb_test test/itemdb_test.c src/itemdb.c && .out/itemdb_test
