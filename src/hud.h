@@ -13,21 +13,21 @@ static hud_draw_t p_hdraw; static hud_size_t p_hsize; static hud_width_t p_hwidt
 static BYTE *g_hud_cl;
 #include "stats.h"
 #include "buffs.h"
-static int g_clock = 1, g_clock_24h = 0, g_clock_color = 4, g_info = 1, g_info_color = 4;
+static int g_clock = 1, g_clock_24h = 0, g_clock_color = 4, g_clock_font = 1, g_clock_fh = 0, g_clock_right = 0, g_clock_top = 6, g_info = 1, g_info_color = 4;
 
 // Texts are built (and measured) only when they change -- the clock once a minute, the map info when the level or difficulty changes -- and then
 // just drawn each frame.
-typedef struct { wchar_t text[64]; int width; } hud_line;
+typedef struct { wchar_t text[64]; int width; int font; int h; } hud_line;   // font: the game font index (0 = the default one, 10 high); h: its height, 0 = the default by font
 static void hud_set(hud_line *l, const wchar_t *w) {
     wcsncpy(l->text, w, 63); l->text[63] = 0;
-    DWORD old = p_hsize(0), wd = 0, fn = 0;
+    DWORD old = p_hsize((DWORD)l->font), wd = 0, fn = 0;
     p_hwidth(l->text, &wd, &fn); p_hsize(old);
     l->width = (int)wd;
 }
 static void hud_put(const hud_line *l, int xr, int y, int color) {
     if (!l->text[0]) return;
-    DWORD old = p_hsize(0);
-    p_hdraw(l->text, xr - l->width, y + 10, (DWORD)color, 0);        // BH adds the font height (10 for font 0) to y
+    DWORD old = p_hsize((DWORD)l->font);
+    p_hdraw(l->text, xr - l->width, y + (l->h > 0 ? l->h : l->font == 6 ? 7 : 10), (DWORD)color, 0);        // BH adds the font height (10 for font 0, 7 for font 6) to y
     p_hsize(old);
 }
 
@@ -47,14 +47,15 @@ static void hud_base(int sw) {
         if (!g_clock) return;
         static hud_line clk; static int key = -1;
         SYSTEMTIME st; GetLocalTime(&st);
-        int k = (st.wHour * 60 + st.wMinute) * 2 + (g_clock_24h ? 1 : 0);
+        int k = ((st.wHour * 60 + st.wMinute) * 2 + (g_clock_24h ? 1 : 0)) * 16 + g_clock_font;   // rebuilt when the minute, the 12/24 h setting or the font changes
         if (k != key) {
             key = k; wchar_t t[32];
             if (g_clock_24h) swprintf(t, 32, L"%02d:%02d", st.wHour, st.wMinute);
             else swprintf(t, 32, L"%d:%02d", st.wHour % 12 ? st.wHour % 12 : 12, st.wMinute);
-            hud_set(&clk, t);
+            clk.font = g_clock_font; hud_set(&clk, t);
         }
-        hud_put(&clk, sw - 10, 6, g_clock_color);
+        clk.h = g_clock_fh > 0 ? g_clock_fh : g_clock_font == 0 ? 10 : g_clock_font == 6 ? 7 : 16;   // font 1 (the item labels) is about 16 high; clock_font_height overrides
+        hud_put(&clk, sw - g_clock_right, g_clock_top, g_clock_color);
         return;
     }
     if (!g_info) return;

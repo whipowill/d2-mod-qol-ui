@@ -111,6 +111,7 @@ static wchar_t g_msg[96]; static volatile LONG g_msg_ready;      // a chat line 
 #include "hud.h"
 #include "idclick.h"
 #include "statrange.h"
+#include "itemdesc.h"
 #include "inspect.h"
 #include "showitems.h"
 #include "keys.h"
@@ -165,6 +166,10 @@ static void load_config(void) {
     g_clock = master && GetPrivateProfileIntA("display", "clock", 1, path);
     g_clock_24h = GetPrivateProfileIntA("display", "clock_24h", 0, path);
     g_clock_color = GetPrivateProfileIntA("display", "clock_color", 4, path);
+    g_clock_font = GetPrivateProfileIntA("display", "clock_font", 1, path); if (g_clock_font < 0 || g_clock_font > 13) g_clock_font = 1;
+    g_clock_right = GetPrivateProfileIntA("display", "clock_right", 0, path); if (g_clock_right < 0 || g_clock_right > 2000) g_clock_right = 0;
+    g_clock_top = GetPrivateProfileIntA("display", "clock_top", 6, path); if (g_clock_top < 0 || g_clock_top > 2000) g_clock_top = 6;
+    g_clock_fh = GetPrivateProfileIntA("display", "clock_font_height", 0, path); if (g_clock_fh < 0 || g_clock_fh > 64) g_clock_fh = 0;
     g_buffs = master && GetPrivateProfileIntA("display", "buffs", 1, path);
     g_bbottom = GetPrivateProfileIntA("display", "buff_bottom", 5, path); if (g_bbottom < -49) g_bbottom = -49; if (g_bbottom > 2000) g_bbottom = 2000;
     g_bside = GetPrivateProfileIntA("display", "buff_side", 0, path); if (g_bside < -117) g_bside = -117; if (g_bside > 2000) g_bside = 2000;
@@ -173,6 +178,7 @@ static void load_config(void) {
     g_dtint = GetPrivateProfileIntA("display", "debuff_tint", 1, path); if (g_dtint < 0 || g_dtint > 255) g_dtint = 1;
     g_info = master && GetPrivateProfileIntA("display", "map_info", 1, path);
     g_info_color = GetPrivateProfileIntA("display", "map_info_color", 4, path);
+    g_item_desc = GetPrivateProfileIntA("features", "item_descriptions", 1, path);
     g_stat_ranges = GetPrivateProfileIntA("features", "item_stat_ranges", 1, path);
     g_range_color = GetPrivateProfileIntA("features", "stat_range_color", 10, path); if (g_range_color < 0 || g_range_color > 15) g_range_color = 10;
     g_remember_filter = GetPrivateProfileIntA("lootfilter", "remember_filter_level", 1, path);
@@ -229,6 +235,7 @@ static DWORD WINAPI worker(LPVOID arg) {
     CreateThread(NULL, 0, inspect_thread, NULL, 0, NULL);
     CreateThread(NULL, 0, showitems_thread, NULL, 0, NULL);
     CreateThread(NULL, 0, statrange_thread, NULL, 0, NULL);
+    CreateThread(NULL, 0, itemdesc_thread, NULL, 0, NULL);
     CreateThread(NULL, 0, idclick_thread, NULL, 0, NULL);
     CreateThread(NULL, 0, keys_thread, NULL, 0, NULL);
     CreateThread(NULL, 0, hud_thread, NULL, 0, NULL);

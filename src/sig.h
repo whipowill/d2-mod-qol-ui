@@ -122,6 +122,17 @@ __attribute__((unused)) static long sig_find_chatsend(const unsigned char *buf, 
     long a = qt_find(buf, n, 0, n, pat, (int)(sizeof pat / sizeof *pat), &c);
     return c == 1 ? a + 16 : -1;
 }
+// The end of the item-description text builder (BH's GetProperties patch, D2Client +0x2E3FC): `call strcat ; pop esi ; pop ebp ; pop ebx ; add esp,808h ;
+// ret 0Ch`. EAX is the description text then. We replace the 6 bytes of `add esp,808h` with `E9 rel32 90`. Returns the offset of those 6 bytes.
+__attribute__((unused)) static long sig_find_itemdesc(const unsigned char *buf, size_t n, int *patched) {
+    static const short orig[]   = {0x8D,0x54,0x24,0x14, 0x8B,0xCF, 0xFF,0x15,-1,-1,-1,-1, 0x5E,0x5D,0x5B, 0x81,0xC4,0x08,0x08,0x00,0x00, 0xC2,0x0C,0x00};
+    static const short jumped[] = {0x8D,0x54,0x24,0x14, 0x8B,0xCF, 0xFF,0x15,-1,-1,-1,-1, 0x5E,0x5D,0x5B, 0xE9,-1,-1,-1,-1,0x90, 0xC2,0x0C,0x00};
+    int c1 = 0, c2 = 0;
+    long a = qt_find(buf, n, 0, n, orig, (int)(sizeof orig / sizeof *orig), &c1), b = qt_find(buf, n, 0, n, jumped, (int)(sizeof jumped / sizeof *jumped), &c2);
+    if (c1 + c2 != 1) return -1;
+    if (patched) *patched = c2 == 1;
+    return (c1 ? a : b) + 15;
+}
 // The text-colour operands (`push imm8`) of the automap name labels in the unit-draw routine (D2Client +0x72440..+0x73151). The operand byte is a wildcard in the
 // patterns, so a patched file still matches. which: 0 = NPC label (game: 4 gold), 1 = party member (2 green), 2 = other player (1 red), 3 = owner name drawn
 // above a non-party revived minion (1 red). Returns the offset of the operand byte (and its value in *cur), -1 unless the pattern matches exactly once.

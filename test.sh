@@ -51,6 +51,11 @@ done
 .out/sigtest show1-patched ${SH1/391dc4c8bc6f/e8aabbccdd90}
 .out/sigtest show2-patched ${SH2/8b44241c85c0/e8aabbccdd90}
 .out/sigtest show3-patched ${SH3/8b0dc4c8bc6f/e8aabbccdd90}
+DESC=8d5424148bcfff15acfab76f5e5d5b81c408080000c20c00
+.out/sigtest desc-orig $DESC
+.out/sigtest desc-patched ${DESC/81c408080000/e9aabbccdd90}
+.out/sigtest desc-none ${DESC:0:30}
+.out/sigtest desc-none ${DESC}${DESC}
 LBL0=6a008be86a048d43f6508bcde897a2f9ff
 LBL1=3844241075046a02eb026a01535756e80d95f9ff
 LBL3=663944241c74766a01535755e87295f9ff
