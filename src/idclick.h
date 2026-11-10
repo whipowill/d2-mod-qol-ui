@@ -14,7 +14,7 @@ static id_send_t p_idsend; static id_cursor_t p_idcursor;
 static void *(__stdcall *p_idtext)(DWORD); static DWORD (__stdcall *p_idstat)(DWORD, DWORD, DWORD);
 static WNDPROC g_old_wndproc;
 static DWORD g_mv_item, g_mv_x, g_mv_y, g_mv_dest, g_mv_at; 
-static DWORD g_mv_wait_item, g_mv_wait_from, g_mv_src_loc, g_mv_src_x, g_mv_src_y;   // after the put-down: wait until the cursor is empty again (a move the server refused leaves the item on the cursor)                   // a pending move: the pickup was sent, the put-down follows one tick later
+static DWORD g_mv_wait_item, g_mv_wait_from, g_mv_wait_loc, g_mv_wait_x, g_mv_wait_y, g_mv_src_loc, g_mv_src_x, g_mv_src_y;   // after the put-down: wait until the cursor is empty again (a move the server refused leaves the item on the cursor)                   // a pending move: the pickup was sent, the put-down follows one tick later
 static DWORD g_view_unit;                                                       // the unit whose inventory is shown (0 = yours); see inspect.h
 static void iv_tick(void);
 static DWORD g_id_item, g_id_book, g_id_at;                                  // a pending identify: send 0x27 when the clock passes g_id_at
@@ -77,23 +77,58 @@ static int id_try_click(void) {
     return 1;
 }
 
+#define MV_TRACE(msg) do { static int n_; if (g_logging && n_ < 300) { n_++; logf_("item move: %s", msg); } } while (0)
+// Where the client currently has an item (location, cell). 0 if it is not in the player's inventory list.
+static int mv_where(DWORD id, DWORD *loc, DWORD *x, DWORD *y) {
+    DWORD pl = p_player ? p_player() : 0;
+    if (!pl || !readable((void *)pl, 0x64)) return 0;
+    DWORD inv = *(DWORD *)(pl + 0x60);
+    if (!inv || !readable((void *)inv, 0x2C)) return 0;
+    int guard = 0;
+    for (DWORD it = *(DWORD *)(inv + 0x0C); it && readable((void *)it, 0x30) && guard < 512; guard++) {
+        DWORD data = *(DWORD *)(it + 0x14);
+        if (!data || !readable((void *)data, 0x70)) break;
+        if (*(DWORD *)(it + 0x0C) == id) {
+            DWORD path = *(DWORD *)(it + 0x2C);
+            if (!path || !readable((void *)path, 0x14)) return 0;
+            *loc = *(BYTE *)(data + 0x45); *x = *(DWORD *)(path + 0x0C); *y = *(DWORD *)(path + 0x10);
+            return 1;
+        }
+        it = *(DWORD *)(data + 0x64);
+    }
+    return 0;
+}
+
 // Game thread, from the game loop.
 static void mv_tick(void) {
     if (g_mv_wait_item) {                                              // the put-down was sent: did it work? (slow games / a LAN: the answer takes a while)
         DWORD now = GetTickCount();
-        if ((int)(now - g_mv_wait_from) >= 150) {
-            DWORD cur = p_idcursor ? p_idcursor() : 0;
-            if (!cur) g_mv_wait_item = 0;                              // cursor empty: done
-            else if ((int)(now - g_mv_wait_from) > 900) {              // still holding it: the server refused. Put it back where it came from
+        DWORD wl, wx, wy, cur = p_idcursor ? p_idcursor() : 0;
+        if (!cur && mv_where(g_mv_wait_item, &wl, &wx, &wy) && wl == g_mv_wait_loc && wx == g_mv_wait_x && wy == g_mv_wait_y) g_mv_wait_item = 0;   // the game's grid shows it at the target: done (an empty cursor alone is not proof, the pickup reply may still be on its way)
+        else if ((int)(now - g_mv_wait_from) > 900) {
+            MV_TRACE(cur ? "put-down not confirmed; putting the item back" : "put-down not confirmed and the cursor is empty");
+            if (!cur) g_mv_wait_item = 0;                              // nothing on the cursor and not at the target: give up waiting
+            else {              // still holding it: the server refused. Put it back where it came from
                 if (*(DWORD *)(cur + 0x0C) == g_mv_wait_item) { BYTE pk[17] = {0x18}; *(DWORD *)(pk + 1) = g_mv_wait_item; *(DWORD *)(pk + 5) = g_mv_src_x; *(DWORD *)(pk + 9) = g_mv_src_y; *(DWORD *)(pk + 13) = g_mv_src_loc; p_idsend(17, 1, pk); }
                 g_mv_wait_item = 0;
             }
         }
     }
     if (!g_mv_item || (int)(GetTickCount() - g_mv_at) < 0) return;
+    {   // put down only once the game really holds the item on the cursor (the pickup was answered); a blind put-down against a slow or refused pickup desyncs client and server
+        DWORD cur = p_idcursor ? p_idcursor() : 0;
+        if (!cur || !readable((void *)cur, 0x10) || *(DWORD *)(cur + 0x0C) != g_mv_item) {
+            if ((int)(GetTickCount() - g_mv_at) < 2000) return;   // keep waiting for the pickup reply
+            MV_TRACE("pickup never arrived within 2 s; giving up, watching for a late arrival");
+            g_mv_wait_item = g_mv_item; g_mv_wait_from = GetTickCount(); g_mv_wait_loc = g_mv_src_loc; g_mv_wait_x = g_mv_src_x; g_mv_wait_y = g_mv_src_y;   // if it shows up on the cursor later it is put back
+            g_mv_item = 0;
+            return;
+        }
+    }
+    MV_TRACE("cursor holds the item; putting down");
     if (g_mv_dest == 0xFF) { BYTE pk[5] = {0x17}; *(DWORD *)(pk + 1) = g_mv_item; p_idsend(5, 1, pk); }                            // drop on the ground
     else { BYTE pk[17] = {0x18}; *(DWORD *)(pk + 1) = g_mv_item; *(DWORD *)(pk + 5) = g_mv_x; *(DWORD *)(pk + 9) = g_mv_y; *(DWORD *)(pk + 13) = g_mv_dest; p_idsend(17, 1, pk); }   // put in a container
-    if (g_mv_dest != 0xFF) { g_mv_wait_item = g_mv_item; g_mv_wait_from = GetTickCount(); }
+    if (g_mv_dest != 0xFF) { g_mv_wait_item = g_mv_item; g_mv_wait_from = GetTickCount(); g_mv_wait_loc = g_mv_dest; g_mv_wait_x = g_mv_x; g_mv_wait_y = g_mv_y; }
     g_mv_item = 0;
 }
 static void id_tick(void) {
@@ -131,10 +166,9 @@ static int mv_free(const mv_grid *g, int iw, int ih, int *ox, int *oy) {
 static int mv_try_click(int shift, int ctrl) {
     static int logged;
 #define MV_WHY(msg) do { if (g_logging && logged < 25) { logged++; logf_("item move: %s", msg); } } while (0)
-    if (!g_item_move_cfg || !g_hud_cl || !p_idsend || !p_idtext || !p_player || g_mv_item || g_view_unit) return 0;
+    if (!g_item_move_cfg || !g_hud_cl || !p_idsend || !p_idtext || !p_player || g_view_unit) return 0;
     DWORD pl = p_player();
     if (!pl || !readable((void *)pl, 0x64)) return 0;
-    if (p_idcursor && p_idcursor()) { MV_WHY("an item is on the cursor"); return 0; }
     int ui_inv = id_ui(1), ui_stash = id_ui(0x19), ui_cube = id_ui(0x1A);
     int mx = (int)*(DWORD *)(g_hud_cl + 0x11C950), my = (int)*(DWORD *)(g_hud_cl + 0x11C94C);
     int l[3], r[3], t[3], b[3], c[3], w[3], h[3];
@@ -144,7 +178,8 @@ static int mv_try_click(int shift, int ctrl) {
     else if (ui_cube && c[MV_CUBE] > 0 && mx >= l[MV_CUBE] && mx <= r[MV_CUBE] && my >= t[MV_CUBE] && my <= b[MV_CUBE]) source = MV_CUBE;   // the cube panel is drawn over the stash's place
     else if (ui_stash && c[MV_STASH] > 0 && mx >= l[MV_STASH] && mx <= r[MV_STASH] && my >= t[MV_STASH] && my <= b[MV_STASH]) source = MV_STASH;
     if (source < 0) return 0;                                             // not over one of the panels: leave the click alone
-    if (g_mv_wait_item) { MV_WHY("the last move is still being confirmed"); return 1; }   // a second move now would be planned on a grid the game has not updated yet
+    if (g_mv_item || g_mv_wait_item) { MV_WHY("the last move is still being confirmed"); return 1; }   // swallowed, so the game never sees a shift+right click on the panel
+    if (p_idcursor && p_idcursor()) { MV_WHY("an item is on the cursor"); return 0; }   // a second move now would be planned on a grid the game has not updated yet
     sx = (mx - l[source]) / c[source]; sy = (my - t[source]) / c[source];
     DWORD inventory = *(DWORD *)(pl + 0x60);
     if (!inventory || !readable((void *)inventory, 0x2C)) return 0;
@@ -177,6 +212,7 @@ static int mv_try_click(int shift, int ctrl) {
     } else return 0;
     BYTE pk[5] = {0x19}; *(DWORD *)(pk + 1) = found; p_idsend(5, 1, pk);   // pick it up; the put-down follows one tick later
     g_mv_src_loc = mv_loc[source]; g_mv_src_x = (DWORD)fx; g_mv_src_y = (DWORD)fy;
+    MV_TRACE("pickup sent");
     g_mv_item = found; g_mv_x = (DWORD)dx; g_mv_y = (DWORD)dy; g_mv_dest = dest; g_mv_at = GetTickCount() + 30;
     MV_WHY(ctrl ? "dropping on the ground" : "moving the item");
     return 1;
