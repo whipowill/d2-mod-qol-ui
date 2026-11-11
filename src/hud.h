@@ -13,6 +13,7 @@ static hud_draw_t p_hdraw; static hud_size_t p_hsize; static hud_width_t p_hwidt
 static BYTE *g_hud_cl;
 #include "stats.h"
 #include "buffs.h"
+#include "autoparty.h"
 static int g_clock = 1, g_clock_24h = 0, g_clock_color = 4, g_clock_font = 1, g_clock_fh = 0, g_clock_right = 0, g_clock_top = 6, g_info = 1, g_info_color = 4;
 
 // Texts are built (and measured) only when they change -- the clock once a minute, the map info when the level or difficulty changes -- and then
@@ -37,6 +38,7 @@ static void __cdecl hud_frame(void) {
     int sw = (int)*(DWORD *)(g_hud_cl + 0xF7034);
     if (sw <= 0 || sw > 8192) return;
     hud_base(sw);
+    ap_frame();
     int sh = (int)*(DWORD *)(g_hud_cl + 0xF7038);
     if (sh > 0 && sh <= 8192) buffs_draw(sw, sh);
     if (g_stats_open) stats_draw(sw);
@@ -112,6 +114,7 @@ static DWORD WINAPI hud_thread(LPVOID arg) {
       if (th) {                                                     // pushad ; mov esi,[esp+24h] ; call fn ; mov [esp+1Ch],eax ; popad ; ret
           static const BYTE a[] = {0x60, 0x8B, 0x74, 0x24, 0x24}; static const BYTE b[] = {0x89, 0x44, 0x24, 0x1C, 0x61, 0xC3};
           BYTE *q = emit(th, a, 5); q = emit_rel(q, 0xE8, (DWORD)(g_hud_cl + 0x18250)); emit(q, b, 6); p_hlname = (hud_lname_t)th; } }
+    ap_init((BYTE *)cl);
     p_player = (mh_player_t)(g_hud_cl + 0x613C0); p_diff = (mh_diff_t)(g_hud_cl + 0x42980);
     BYTE *base = (BYTE *)cl; IMAGE_SECTION_HEADER *sec = IMAGE_FIRST_SECTION(nt);
     for (int k = 0; k < nt->FileHeader.NumberOfSections; k++, sec++) {

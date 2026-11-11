@@ -13,6 +13,7 @@ A mod for Diablo II introducing various UI enhancements such as loot filters, ma
 - **Directions** - lines show you were to go on the map
 - **Always Show Items** - ground item labels stay on
 - **Map Colours** - colour the crosses and name labels of you, your party, NPCs and minions
+- **Auto Party** - auto invite players to your party
 - **HUD Clock** - game always shows the current time
 
 All of these features are configured in the ``qol_ui.ini`` and ``qol_ui_filter.cfg`` files.

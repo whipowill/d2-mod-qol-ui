@@ -184,6 +184,7 @@ static void load_config(void) {
     g_remember_filter = GetPrivateProfileIntA("lootfilter", "remember_filter_level", 1, path);
     g_item_move_cfg = master && GetPrivateProfileIntA("features", "item_move", 1, path);
     g_shift_id = master && GetPrivateProfileIntA("features", "shift_click_id", 1, path);
+    g_auto_party = master && GetPrivateProfileIntA("features", "auto_party", 1, path);
     g_show_items_cfg = master && GetPrivateProfileIntA("features", "always_show_items", 0, path);
     g_key_show_items = GetPrivateProfileIntA("keys", "show_items_key", 76, path);
     g_key_inspect = GetPrivateProfileIntA("keys", "inspect_key", 73, path);

@@ -73,3 +73,4 @@ done
 .out/sigtest lbl3-none ${LBL3}${LBL3}
 gcc -O1 -Wall -Wextra -Isrc -o .out/filter_test test/filter_test.c src/filter.c && .out/filter_test
 gcc -O1 -Wall -Wextra -Isrc -o .out/itemdb_test test/itemdb_test.c src/itemdb.c && .out/itemdb_test
+gcc -O1 -Wall -Wextra -Isrc -o .out/party_test test/party_test.c src/party.c && .out/party_test
