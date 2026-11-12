@@ -53,13 +53,11 @@ static DWORD am_tile_dest(DWORD room2, DWORD tile_no) {         // BH GetTileLev
     }
     return 0;
 }
-// ---- wilderness exits, the BH AutoTele way (CCollisionMap::BuildMapData / FillGaps / GetLevelExits) ----
-// A collision map of the level is built from the rooms connected to the player's room (rooms the game has not loaded get their data added for the look),
-// thin gaps are filled in (twice), then the first walkable gap on each of the four outer edges is taken as an exit; its centre is matched to the neighbouring
-// level whose room sits next to it.
+// ---- BH AutoTele, copied step by step: GetVectors -> CCollisionMap::CreateMap / Search / FillGaps / GetLevelExits, FindPresetLocation ----
+// Everything runs once on the game thread when the player's area changes (am_loop). Room data is added and removed in exactly BH's order.
 typedef struct { DWORD target; int x, y; } am_exit;
 static int am_blocked(const WORD *m, int W, int H, int x, int y) { (void)H; return m[y * W + x] % 2; }
-static int am_is_gap(const WORD *m, int W, int H, int x, int y) {      // BH CCollisionMap::IsGap: a walkable cell without 3 walkable in a row both ways
+static int am_is_gap(const WORD *m, int W, int H, int x, int y) {      // BH CCollisionMap::IsGap
     if (m[y * W + x] % 2) return 0;
     int n = 0;
     for (int i = x - 2; i <= x + 2 && n < 3; i++) { if (i < 0 || i >= W || m[y * W + i] % 2) n = 0; else n++; }
@@ -68,159 +66,159 @@ static int am_is_gap(const WORD *m, int W, int H, int x, int y) {      // BH CCo
     for (int i = y - 2; i <= y + 2 && n < 3; i++) { if (i < 0 || i >= H || m[i * W + x] % 2) n = 0; else n++; }
     return n < 3;
 }
-static int am_build_exits(DWORD level, DWORD act, DWORD proom1, am_exit *out, int max) {
-    int W = (int)*(DWORD *)(level + 0x24) * 5, H = (int)*(DWORD *)(level + 0x28) * 5, ox = (int)*(DWORD *)(level + 0x1C) * 5, oy = (int)*(DWORD *)(level + 0x20) * 5;
-    DWORD lno = *(DWORD *)(level + 0x1D0);
-    if (W <= 0 || H <= 0 || W > 4096 || H > 4096 || (long)W * H > 4000000L) return 0;
-    WORD *m = (WORD *)malloc((size_t)W * (size_t)H * sizeof(WORD)); if (!m) return 0;
-    for (long i = 0; i < (long)W * H; i++) m[i] = 0xFFFF;                // MAP_DATA_INVALID (odd = not walkable)
-    DWORD *stk = (DWORD *)malloc(2048 * sizeof(DWORD)), *vis = (DWORD *)malloc(2048 * sizeof(DWORD));
-    if (!stk || !vis) { free(m); free(stk); free(vis); return 0; }
-    int sp = 0, nv = 0;
-    DWORD room1p = *(DWORD *)(proom1 + 0x10); if (room1p) stk[sp++] = room1p;   // flood fill from the player's room along the near-room lists
-    while (sp > 0) {
-        DWORD r = stk[--sp];
-        if (!r || !readable((void *)r, 0x60) || *(DWORD *)(r + 0x58) != level) continue;
-        int seen = 0; for (int i = 0; i < nv; i++) if (vis[i] == r) { seen = 1; break; }
-        if (seen || nv >= 2048) continue;
-        vis[nv++] = r;
-        int did_add = 0;
-        if (!*(DWORD *)(r + 0x30) && p_addroom && act) { p_addroom(act, (int)lno, (int)*(DWORD *)(r + 0x34), (int)*(DWORD *)(r + 0x38), proom1); did_add = 1; }
-        DWORD r1 = *(DWORD *)(r + 0x30), coll = (r1 && readable((void *)r1, 0x24)) ? *(DWORD *)(r1 + 0x20) : 0;
-        if (coll && readable((void *)coll, 0x28)) {
-            int px = (int)*(DWORD *)coll - ox, py = (int)*(DWORD *)(coll + 4) - oy, sx = (int)*(DWORD *)(coll + 8), sy = (int)*(DWORD *)(coll + 0xC);
-            WORD *src = *(WORD **)(coll + 0x20);
-            if (src && sx > 0 && sy > 0 && sx <= 512 && sy <= 512 && readable(src, (size_t)sx * (size_t)sy * 2)) {
-                for (int j = 0; j < sy; j++) for (int i = 0; i < sx; i++) {
-                    int gx = px + i, gy = py + j; if (gx < 0 || gy < 0 || gx >= W || gy >= H) continue;
-                    WORD v = src[j * sx + i]; m[gy * W + gx] = v == 1024 ? 11115 : v;
-                }
+static DWORD am_cur_room1(void) {                                      // BH reads player->pPath->pRoom1 again for every AddRoomData / RemoveRoomData
+    DWORD pl = p_player(); if (!pl || !readable((void *)pl, 0x30)) return 0;
+    DWORD path = *(DWORD *)(pl + 0x2C); if (!path || !readable((void *)path, 0x20)) return 0;
+    return *(DWORD *)(path + 0x1C);
+}
+static DWORD am_cur_act(void) { DWORD pl = p_player(); return (pl && readable((void *)pl, 0x30)) ? *(DWORD *)(pl + 0x1C) : 0; }
+static int am_add_room(DWORD r, DWORD lno) {
+    if (!g_am_load_rooms) return 0;                                    // read-only mode: never touch the game's room data
+    DWORD act = am_cur_act(), r1 = am_cur_room1();
+    if (!p_addroom || !act || !r1) return 0;
+    p_addroom(act, (int)lno, (int)*(DWORD *)(r + 0x34), (int)*(DWORD *)(r + 0x38), r1); return 1;
+}
+static void am_del_room(DWORD r, DWORD lno) {
+    DWORD act = am_cur_act(), r1 = am_cur_room1();
+    if (p_delroom && act && r1) p_delroom(act, (int)lno, (int)*(DWORD *)(r + 0x34), (int)*(DWORD *)(r + 0x38), r1);
+}
+
+static struct { WORD *m; int W, H, ox, oy; DWORD lno; DWORD skip[2048]; int nskip; } g_cm;   // BH CCollisionMap (one at a time)
+static void am_cm_search(DWORD r, DWORD scan, int depth) {             // BH CCollisionMap::Search (AddCollisionData inlined)
+    if (!r || depth > 1500 || !readable((void *)r, 0x60)) return;
+    DWORD lv = *(DWORD *)(r + 0x58);
+    if (!lv || !readable((void *)lv, 0x1D4) || *(DWORD *)(lv + 0x1D0) != scan) return;
+    for (int i = 0; i < g_cm.nskip; i++) if (g_cm.skip[i] == r) return;
+    if (g_cm.nskip >= 2048) return;
+    int add = 0;
+    if (!*(DWORD *)(r + 0x30)) add = am_add_room(r, scan);
+    g_cm.skip[g_cm.nskip++] = r;
+    DWORD r1 = *(DWORD *)(r + 0x30), coll = (r1 && readable((void *)r1, 0x24)) ? *(DWORD *)(r1 + 0x20) : 0;
+    if (coll && readable((void *)coll, 0x28)) {
+        int px = (int)*(DWORD *)coll - g_cm.ox, py = (int)*(DWORD *)(coll + 4) - g_cm.oy, sx = (int)*(DWORD *)(coll + 8), sy = (int)*(DWORD *)(coll + 0xC);
+        WORD *src = *(WORD **)(coll + 0x20);
+        if (src && sx > 0 && sy > 0 && sx <= 512 && sy <= 512 && readable(src, (size_t)sx * (size_t)sy * 2))
+            for (int j = 0; j < sy; j++) for (int i = 0; i < sx; i++) {
+                int gx = px + i, gy = py + j; if (gx < 0 || gy < 0 || gx >= g_cm.W || gy >= g_cm.H) continue;
+                WORD v = src[j * sx + i]; g_cm.m[gy * g_cm.W + gx] = v == 1024 ? 11115 : v;
             }
-        }
-        DWORD *nr = *(DWORD **)(r + 8); int nn = (int)*(DWORD *)(r + 0x2C);
-        if (nr && nn > 0 && nn < 64 && readable(nr, (size_t)nn * 4)) for (int k = 0; k < nn && sp < 2040; k++) stk[sp++] = nr[k];
-        if (did_add) p_delroom(act, (int)lno, (int)*(DWORD *)(r + 0x34), (int)*(DWORD *)(r + 0x38), proom1);
     }
-    for (int pass = 0; pass < 2; pass++)                                  // FillGaps twice
-        for (int x = 0; x < W; x++) for (int y = 0; y < H; y++) if (am_is_gap(m, W, H, x, y)) m[y * W + x] = 11111;
-    int sx0[4], sy0[4], sx1[4], sy1[4], np = 0;                           // the first walkable run on each outer edge
+    DWORD *nr = *(DWORD **)(r + 8); int nn = (int)*(DWORD *)(r + 0x2C);
+    if (nr && nn > 0 && nn < 64 && readable(nr, (size_t)nn * 4)) { DWORD near_[64]; memcpy(near_, nr, (size_t)nn * 4); for (int k = 0; k < nn; k++) am_cm_search(near_[k], scan, depth + 1); }
+    if (add) am_del_room(r, scan);                                     // BH removes the room only after its neighbours were searched
+}
+static int am_cm_create(DWORD misc, const DWORD *areas, int na) {      // BH BuildMapData: origin = top-left of the levels, size = sum of the level sizes
+    memset(&g_cm, 0, sizeof g_cm);
+    DWORD first = am_level_ptr(misc, areas[0]); if (!first || !readable((void *)first, 0x1D4)) return 0;
+    g_cm.ox = (int)*(DWORD *)(first + 0x1C) * 5; g_cm.oy = (int)*(DWORD *)(first + 0x20) * 5; g_cm.lno = areas[0];
+    int W = 0, H = 0;
+    for (int n = 0; n < na; n++) {
+        DWORD lv = am_level_ptr(misc, areas[n]); if (!lv || !readable((void *)lv, 0x1D4)) continue;
+        if (g_cm.ox / 5 > (int)*(DWORD *)(lv + 0x1C)) g_cm.ox = (int)*(DWORD *)(lv + 0x1C) * 5;
+        if (g_cm.oy / 5 > (int)*(DWORD *)(lv + 0x20)) g_cm.oy = (int)*(DWORD *)(lv + 0x20) * 5;
+        W += (int)*(DWORD *)(lv + 0x24) * 5; H += (int)*(DWORD *)(lv + 0x28) * 5;
+    }
+    if (W <= 0 || H <= 0 || W > 4096 || H > 4096 || (long)W * H > 4000000L) return 0;
+    g_cm.m = (WORD *)malloc((size_t)W * (size_t)H * sizeof(WORD)); if (!g_cm.m) return 0;
+    g_cm.W = W; g_cm.H = H;
+    for (long i = 0; i < (long)W * H; i++) g_cm.m[i] = 0xFFFF;         // MAP_DATA_INVALID
+    for (int n = 0; n < na; n++) {
+        DWORD lv = am_level_ptr(misc, areas[n]); if (!lv || !readable((void *)lv, 0x1D4)) continue;
+        am_cm_search(*(DWORD *)(lv + 0x10), areas[n], 0);
+    }
+    for (int pass = 0; pass < 2; pass++)                               // FillGaps twice
+        for (int x = 0; x < W; x++) for (int y = 0; y < H; y++) if (am_is_gap(g_cm.m, W, H, x, y)) g_cm.m[y * W + x] = 11111;
+    return 1;
+}
+static int am_cm_exits(DWORD misc, am_exit *out, int max) {           // BH CCollisionMap::GetLevelExits
+    WORD *m = g_cm.m; int W = g_cm.W, H = g_cm.H, ox = g_cm.ox, oy = g_cm.oy; DWORD lno = g_cm.lno;
+    int sx0[4], sy0[4], sx1[4], sy1[4], np = 0;
     for (int i = 0; i < W; i++) if (!am_blocked(m, W, H, i, 0)) { sx0[np] = i; sy0[np] = 0; sx1[np] = W - 1; sy1[np] = 0; for (i++; i < W; i++) if (am_blocked(m, W, H, i, 0)) { sx1[np] = i - 1; break; } np++; break; }
     for (int i = 0; i < W; i++) if (!am_blocked(m, W, H, i, H - 1)) { sx0[np] = i; sy0[np] = H - 1; sx1[np] = W - 1; sy1[np] = H - 1; for (i++; i < W; i++) if (am_blocked(m, W, H, i, H - 1)) { sx1[np] = i - 1; break; } np++; break; }
     for (int i = 0; i < H; i++) if (!am_blocked(m, W, H, 0, i)) { sx0[np] = 0; sy0[np] = i; sx1[np] = 0; sy1[np] = H - 1; for (i++; i < H; i++) if (am_blocked(m, W, H, 0, i)) { sy1[np] = i - 1; break; } np++; break; }
     for (int i = 0; i < H; i++) if (!am_blocked(m, W, H, W - 1, i)) { sx0[np] = W - 1; sy0[np] = i; sx1[np] = W - 1; sy1[np] = H - 1; for (i++; i < H; i++) if (am_blocked(m, W, H, W - 1, i)) { sy1[np] = i - 1; break; } np++; break; }
     int cx[4], cy[4];
-    for (int i = 0; i < np; i++) { cx[i] = sx0[i] + (sx1[i] - sx0[i] > 0 ? (sx1[i] - sx0[i]) / 2 : 0); cy[i] = sy0[i] + (sy1[i] - sy0[i] > 0 ? (sy1[i] - sy0[i]) / 2 : 0); }
-    int n = 0, guard = 0;
-    for (DWORD r = *(DWORD *)(level + 0x10); r && readable((void *)r, 0x60) && guard < 4096; r = *(DWORD *)(r + 0x24), guard++) {
-        DWORD *nr = *(DWORD **)(r + 8); int nn = (int)*(DWORD *)(r + 0x2C);
-        if (!nr || nn <= 0 || nn >= 64 || !readable(nr, (size_t)nn * 4)) continue;
-        for (int k = 0; k < nn; k++) {
-            DWORD o = nr[k]; if (!o || !readable((void *)o, 0x60)) continue;
-            DWORD ol = *(DWORD *)(o + 0x58); if (!ol || !readable((void *)ol, 0x1D4)) continue;
-            DWORD olno = *(DWORD *)(ol + 0x1D0); if (olno == lno) continue;
-            int rx = (int)*(DWORD *)(r + 0x34) * 5, ry = (int)*(DWORD *)(r + 0x38) * 5, rw = (int)*(DWORD *)(r + 0x3C) * 5, rh = (int)*(DWORD *)(r + 0x40) * 5;
-            for (int j = 0; j < np; j++)
-                if (cx[j] + ox >= rx && cx[j] + ox <= rx + rw && cy[j] + oy >= ry && cy[j] + oy <= ry + rh && n < max) { out[n].target = olno; out[n].x = cx[j] + ox; out[n].y = cy[j] + oy; n++; }
-            break;                                                        // BH looks at the first neighbour of another level only
-        }
+    for (int i = 0; i < np; i++) {
+        int dx = sx1[i] - sx0[i], dy = sy1[i] - sy0[i];
+        int xc = dx > 0 ? sx0[i] + (dx % 2 ? (dx - dx % 2) / 2 : dx / 2) : 0, yc = dy > 0 ? sy0[i] + (dy % 2 ? (dy - dy % 2) / 2 : dy / 2) : 0;
+        cx[i] = xc ? xc : sx0[i]; cy[i] = yc ? yc : sy0[i];
     }
-    free(m); free(stk); free(vis);
-    return n;
-}
-
-// One pass over the rooms of level `lv` (number `lno`) resolving the wants that belong to it. Returns how many wants are still unresolved.
-static DWORD g_vis[1024]; static int g_nvis;                     // rooms of this level already looked at (a retry only looks at the rest)
-static int am_visited(DWORD r) { for (int i = 0; i < g_nvis; i++) if (g_vis[i] == r) return 1; return 0; }
-static void am_mark(DWORD r) { if (g_nvis < 1024 && !am_visited(r)) g_vis[g_nvis++] = r; }
-static DWORD g_nb_seen[16]; static int g_nb_n; static int g_tiles_seen;     // diagnostics: neighbouring levels and tile presets met by the last pass
-static int am_pass(DWORD lv, DWORD lno, DWORD act, DWORD proom1, am_want *w, int nw, int cur_level, int *rooms, int *added) {
-    int guard = 0;
-    for (DWORD r = *(DWORD *)(lv + 0x10); r && readable((void *)r, 0x60) && guard < 4096; r = *(DWORD *)(r + 0x24), guard++) {
-        if (am_visited(r)) continue;                             // done on an earlier attempt
-        (*rooms)++;
-        int open = 0;
-        for (int i = 0; i < nw; i++) if (w[i].area == lno && !w[i].ok) open = 1;
-        for (int i = 0; i < nw && !open; i++) if (cur_level && w[i].kind == 1 && !w[i].by_tile) open = 1;
-        if (!open) break;                                        // everything found
-        int did_add = 0;
-        int need_tiles = 0; for (int i = 0; i < nw; i++) if (cur_level && w[i].kind == 1 && !w[i].by_tile) need_tiles = 1;
-        // BH FindPresetLocation adds a room only when it has no presets, no tiles and no Room1; BH GetLevelExits (stairs, doors) adds EVERY room without a Room1,
-        // because a room that has some presets can still lack its stairs until its data is added. Exits wanted -> the second rule.
-        if (!*(DWORD *)(r + 0x30) && p_addroom && act && (need_tiles || (!*(DWORD *)(r + 0x5C) && !*(DWORD *)(r + 0x4C)))) {
-            p_addroom(act, (int)lno, (int)*(DWORD *)(r + 0x34), (int)*(DWORD *)(r + 0x38), proom1); did_add = 1; (*added)++;
-        }
-        DWORD roomx = *(DWORD *)(r + 0x34), roomy = *(DWORD *)(r + 0x38);
-        int pg = 0;
-        for (DWORD ps = *(DWORD *)(r + 0x5C); ps && readable((void *)ps, 0x1C) && pg < 256; ps = *(DWORD *)(ps + 0x0C), pg++) {
-            DWORD type = *(DWORD *)(ps + 0x14), id = *(DWORD *)(ps + 4);
-            int x = (int)(*(DWORD *)(ps + 8) + roomx * 5), y = (int)(*(DWORD *)(ps + 0x18) + roomy * 5);
-            DWORD dest = (type == 5 && cur_level) ? am_tile_dest(r, id) : 0;
-            if (type == 5) g_tiles_seen++;
-            for (int i = 0; i < nw; i++) {
-                if (w[i].kind == 0 && !w[i].ok && w[i].area == lno && w[i].type == type && w[i].id == id) { w[i].ok = 1; w[i].x = x; w[i].y = y; }
-                else if (w[i].kind == 1 && dest && w[i].target == dest && !w[i].by_tile) { w[i].ok = 1; w[i].by_tile = 1; w[i].x = x; w[i].y = y; }
+    DWORD lv0 = am_level_ptr(misc, lno); int n = 0, guard = 0;
+    if (!lv0 || !readable((void *)lv0, 0x1D4)) return 0;
+    for (DWORD r = *(DWORD *)(lv0 + 0x10); r && readable((void *)r, 0x60) && guard < 4096; r = *(DWORD *)(r + 0x24), guard++) {
+        DWORD *nr = *(DWORD **)(r + 8); int nn = (int)*(DWORD *)(r + 0x2C);
+        if (nr && nn > 0 && nn < 64 && readable(nr, (size_t)nn * 4)) {
+            for (int k = 0; k < nn; k++) {
+                DWORD o = nr[k]; if (!o || !readable((void *)o, 0x60)) continue;
+                DWORD ol = *(DWORD *)(o + 0x58); if (!ol || !readable((void *)ol, 0x1D4)) continue;
+                DWORD olno = *(DWORD *)(ol + 0x1D0); if (olno == lno) continue;
+                int rx = (int)*(DWORD *)(r + 0x34) * 5, ry = (int)*(DWORD *)(r + 0x38) * 5, rw = (int)*(DWORD *)(r + 0x3C) * 5, rh = (int)*(DWORD *)(r + 0x40) * 5;
+                for (int j = 0; j < np; j++)
+                    if (cx[j] + ox >= rx && cx[j] + ox <= rx + rw && cy[j] + oy >= ry && cy[j] + oy <= ry + rh && n < max) { out[n].target = olno; out[n].x = cx[j] + ox; out[n].y = cy[j] + oy; n++; }
+                break;
             }
         }
-        int got = *(DWORD *)(r + 0x30) || *(DWORD *)(r + 0x5C) || *(DWORD *)(r + 0x4C);   // data was there (or the add worked): this room is done
-        if (did_add) p_delroom(act, (int)lno, (int)roomx, (int)roomy, proom1);
-        if (got) am_mark(r);                                     // a room that could not be opened is tried again next time
+        int added = 0;
+        if (!*(DWORD *)(r + 0x30)) added = am_add_room(r, lno);           // every room without a Room1, as BH
+        int pg = 0;
+        for (DWORD ps = *(DWORD *)(r + 0x5C); ps && readable((void *)ps, 0x1C) && pg < 256; ps = *(DWORD *)(ps + 0x0C), pg++) {
+            if (*(DWORD *)(ps + 0x14) != 5) continue;
+            DWORD dest = am_tile_dest(r, *(DWORD *)(ps + 4));
+            if (!dest) continue;
+            int x = (int)(*(DWORD *)(r + 0x34) * 5 + *(DWORD *)(ps + 8)), y = (int)(*(DWORD *)(r + 0x38) * 5 + *(DWORD *)(ps + 0x18)), have = 0;
+            for (int i = 0; i < n; i++) if (out[i].x == x && out[i].y == y) have = 1;
+            if (!have && n < max) { out[n].target = dest; out[n].x = x; out[n].y = y; n++; }
+        }
+        if (added) am_del_room(r, lno);
     }
-    int open = 0;
-    for (int i = 0; i < nw; i++) if (!w[i].ok && (w[i].area == lno)) open++;
-    return open;
+    return n;
+}
+static void am_cm_free(void) { free(g_cm.m); memset(&g_cm, 0, sizeof g_cm); }
+
+static int am_find_preset(DWORD misc, DWORD type, DWORD id, DWORD area, int *ox, int *oy) {   // BH FindPresetLocation
+    *ox = *oy = 0;
+    DWORD lv = am_level_ptr(misc, area); if (!lv || !readable((void *)lv, 0x1D4)) return 0;
+    int guard = 0;
+    for (DWORD r = *(DWORD *)(lv + 0x10); r && readable((void *)r, 0x60) && guard < 4096; r = *(DWORD *)(r + 0x24), guard++) {
+        int added = 0, stop = 0;
+        if (!*(DWORD *)(r + 0x5C) && !*(DWORD *)(r + 0x4C) && !*(DWORD *)(r + 0x30)) added = am_add_room(r, area);
+        int pg = 0;
+        for (DWORD ps = *(DWORD *)(r + 0x5C); ps && readable((void *)ps, 0x1C) && pg < 256; ps = *(DWORD *)(ps + 0x0C), pg++)
+            if ((!type || type == *(DWORD *)(ps + 0x14)) && id == *(DWORD *)(ps + 4)) {
+                *ox = (int)(*(DWORD *)(ps + 8) + *(DWORD *)(r + 0x34) * 5); *oy = (int)(*(DWORD *)(ps + 0x18) + *(DWORD *)(r + 0x38) * 5); stop = 1; break;
+            }
+        if (added) am_del_room(r, area);
+        if (stop) break;
+    }
+    return *ox && *oy;
 }
 
-// Finds the destinations for the level the player is in. Returns how many things are still unresolved.
-static int am_resolve(DWORD level, DWORD act, DWORD proom1) {
+// BH AutoTele::GetVectors
+static void am_get_vectors(DWORD level) {
     DWORD my = *(DWORD *)(level + 0x1D0), misc = *(DWORD *)(level + 0x1B4);
-    if (my >= AT_AREAS || !misc || !readable((void *)misc, 0x480)) return 0;
-    am_want w[AM_SLOTS]; int nw = 0, canyon = 0;
+    if (my >= AT_AREAS || !misc || !readable((void *)misc, 0x480)) return;
+    DWORD areas[2] = {my, 0}; int na = 1, build = 0;
     for (int i = 0; i < 4; i++) {
         at_vec_t v = at_vectors[my * 4 + i];
-        if (my == 46 && v.type == 0 && v.id == 0 && !canyon) { canyon = 1; v.type = 6; v.id = (unsigned short)*(DWORD *)(misc + 0x94); }   // Canyon of the Magi: the tomb with the staff
-        if (g_tgt[i].ok) continue;
-        if (v.type == 7) { g_tgt[i].x = v.id; g_tgt[i].y = v.id2; g_tgt[i].ok = 1; continue; }
-        if ((v.type == 1 || v.type == 2 || v.type == 5) && v.id) { w[nw] = (am_want){i, 0, v.type, v.id, 0, v.area ? v.area : my, 0, 0, 0, 0, 0}; nw++; }
-        else if ((v.type == 6 || v.type == 8) && v.id) {
-            w[nw] = (am_want){i, 1, 0, 0, v.id, my, 0, 0, 0, 0, 0}; nw++;
-            if (v.type == 8 && v.id2 && !g_tgt[AM_EXTRA].ok) { w[nw] = (am_want){AM_EXTRA, 1, 0, 0, v.id2, my, 0, 0, 0, 0, 0}; nw++; }
+        if (v.type == 6 || v.type == 8 || (my == 46 && v.type == 0 && v.id == 0)) { if (v.area) { areas[1] = v.area; na = 2; } build = 1; }
+    }
+    am_exit ex[64]; int ne = 0;
+    if (build && am_cm_create(misc, areas, na)) { ne = am_cm_exits(misc, ex, 64); am_cm_free(); build = 1; } else build = 0;
+    memset(g_tgt, 0, sizeof g_tgt);
+    for (int i = 0; i < 4; i++) {
+        at_vec_t v = at_vectors[my * 4 + i];
+        if (my == 46 && v.type == 0 && v.id == 0) { v.type = 6; v.id = (unsigned short)*(DWORD *)(misc + 0x94); }   // Canyon of the Magi: the tomb with the staff
+        if (v.type == 7) { g_tgt[i].x = v.id; g_tgt[i].y = v.id2; }
+        if (v.type == 1 || v.type == 2 || v.type == 5) { am_find_preset(misc, v.type, v.id, v.area ? v.area : my, &g_tgt[i].x, &g_tgt[i].y); }
+        if ((v.type == 6 || v.type == 8) && build) {
+            for (int e = 0; e < ne; e++) {
+                if (ex[e].target == v.id) { g_tgt[i].x = ex[e].x; g_tgt[i].y = ex[e].y; }
+                else if (v.type == 8 && ex[e].target == v.id2) { g_tgt[AM_EXTRA].x = ex[e].x; g_tgt[AM_EXTRA].y = ex[e].y; }
+            }
         }
     }
-    if (!nw) return 0;
-    int rooms = 0, added = 0; g_nb_n = 0; g_tiles_seen = 0;
-    DWORD seen[AM_SLOTS]; int ns = 0;
-    for (int i = 0; i < nw; i++) {                               // one pass per distinct level (almost always only the current one)
-        int dup = 0; for (int j = 0; j < ns; j++) if (seen[j] == w[i].area) dup = 1;
-        if (dup) continue;
-        seen[ns++] = w[i].area;
-        DWORD lv = w[i].area == my ? level : am_level_ptr(misc, w[i].area);
-        if (lv && readable((void *)lv, 0x1D4)) am_pass(lv, w[i].area, act, proom1, w, nw, w[i].area == my, &rooms, &added);
-    }
-    static int exit_tries; static DWORD exit_level;
-    if (exit_level != my) { exit_level = my; exit_tries = 0; }
-    int want_exit = 0; for (int i = 0; i < nw; i++) if (w[i].kind == 1 && !w[i].ok) want_exit = 1;
-    if (want_exit && exit_tries < 3) {                                      // BH's way: a collision map of the level and its edges (at most 3 attempts per level)
-        exit_tries++;
-        am_exit ex[64]; int ne = am_build_exits(level, act, proom1, ex, 64);
-        for (int i = 0; i < nw; i++) {
-            if (w[i].kind != 1 || w[i].by_tile) continue;
-            for (int e = 0; e < ne; e++) if (ex[e].target == w[i].target) { w[i].ok = 1; w[i].x = ex[e].x; w[i].y = ex[e].y; }       // later ones win, as in BH
-        }
-        if (g_logging) logf_("automap:   BH-style exits found: %d", ne);
-    }
-    int open = 0;
-    for (int i = 0; i < nw; i++) {
-        if (w[i].ok) { g_tgt[w[i].slot].x = w[i].x; g_tgt[w[i].slot].y = w[i].y; g_tgt[w[i].slot].ok = 1; } else open++;
-    }
-    if (g_logging) {
-        for (int i = 0; i < nw; i++) logf_("automap:   slot %d wants %s %lu (%s): %s at %d,%d%s", w[i].slot, w[i].kind ? "exit to level" : "preset type", w[i].kind ? (unsigned long)w[i].target : (unsigned long)w[i].type, w[i].kind ? "" : "id",
-                                           w[i].ok ? "found" : "NOT found", w[i].x, w[i].y, w[i].ok && w[i].kind ? (w[i].by_tile ? " (tile)" : " (border)") : "");
-        char nb[96] = ""; for (int q = 0; q < g_nb_n; q++) { char t[12]; snprintf(t, sizeof t, "%s%lu", q ? "," : "", (unsigned long)g_nb_seen[q]); lstrcatA(nb, t); }
-        logf_("automap:   neighbouring levels seen: [%s], tile presets seen: %d", nb, g_tiles_seen);
-    }
-    logf_("automap: level %lu: %d of %d targets found (%d rooms looked at, %d opened for the look) [next %d other %d wp %d prev %d extra %d]", (unsigned long)my, nw - open, nw, rooms, added,
-          g_tgt[0].ok, g_tgt[1].ok, g_tgt[2].ok, g_tgt[3].ok, g_tgt[4].ok);
-    return open;
+    for (int i = 0; i < AM_SLOTS; i++) g_tgt[i].ok = g_tgt[i].x && g_tgt[i].y;     // BH draws a vector only when both coordinates are non-zero
+    logf_("automap: level %lu [next %d other %d wp %d prev %d extra %d]", (unsigned long)my, g_tgt[0].ok, g_tgt[1].ok, g_tgt[2].ok, g_tgt[3].ok, g_tgt[4].ok);
 }
 
 static void am_square(int x, int y, int color) { if (p_rect) p_rect(x - 2, y - 2, x + 3, y + 3, (DWORD)color, 7); }
@@ -240,20 +238,28 @@ static DWORD am_player_level(DWORD *path_out, DWORD *level_out, DWORD *room1_out
     return *(DWORD *)(level + 0x1D0);
 }
 
-// Runs on the game thread from the game loop (like BH's AutoTele::OnLoop): on entering a level, looks up the destinations.
+// BH IsGameReady (D2Helpers.cpp): the player, path, room, level, act, inventory and a non-zero position must all exist.
+static int am_game_ready(void) {
+    DWORD pl = p_player(); if (!pl || !readable((void *)pl, 0x70)) return 0;
+    DWORD path = *(DWORD *)(pl + 0x2C), act = *(DWORD *)(pl + 0x1C), inv = *(DWORD *)(pl + 0x60);
+    if (!path || !act || !inv || !readable((void *)path, 0x20) || !readable((void *)act, 0x20)) return 0;
+    if (!*(DWORD *)(act + 0x10) || !*(WORD *)(path + 2) || !*(WORD *)(path + 6)) return 0;      // act->pRoom1, xPos, yPos
+    return 1;
+}
+// Runs on the game thread from the game loop, a copy of BH's AutoTele::OnLoop: when the player's area changes, GetVectors runs once.
 static void __cdecl am_loop(void) {
-    static DWORD last; static int tries;
-    DWORD now = GetTickCount();
-    if (!g_exit_lines || now - last < 200) return;
-    last = now;
+    if (!g_exit_lines || !am_game_ready()) return;
     DWORD path, level, room1, no = am_player_level(&path, &level, &room1);
+    static DWORD last_try;
     if (no == 0) return;
-    if (no != g_exit_level) { g_name_gen++; g_exit_level = no; memset(g_tgt, 0, sizeof g_tgt); g_nvis = 0; tries = 0; }
-    if (tries == 0) {                                            // BH AutoTele::OnLoop -> GetVectors: ONE pass when the player's area changes, never repeated (repeated AddRoomData / RemoveRoomData calls can race the single-player server thread, e.g. on a Sorceress teleport)
-        tries = 1;
-        DWORD misc = *(DWORD *)(level + 0x1B4); DWORD act = (misc && readable((void *)misc, 0x470)) ? *(DWORD *)(misc + 0x46C) : 0;
-        am_resolve(level, act, room1);
+    if (no != g_exit_level) { g_name_gen++; g_exit_level = no; last_try = 0; memset(g_tgt, 0, sizeof g_tgt); }
+    else if (g_am_load_rooms) return;                                   // BH way: one look-up per area change
+    else {                                                              // read-only mode: look again every 2 s while something is missing (rooms load as you walk)
+        int missing = 0; for (int i = 0; i < 4; i++) if (!g_tgt[i].ok && no < AT_AREAS && at_vectors[no * 4 + i].type != 0 && at_vectors[no * 4 + i].type != 9) missing = 1;
+        DWORD now = GetTickCount(); if (!missing || now - last_try < 2000) return;
     }
+    last_try = GetTickCount();
+    am_get_vectors(level);
 }
 
 // Runs on the game thread at the end of the automap draw: only draws.

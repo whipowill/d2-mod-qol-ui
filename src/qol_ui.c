@@ -17,7 +17,7 @@ static FILE *g_log;
 static int g_logging = 0, g_filter_on = 1, g_filter_level = 1, g_ping_level = 5, g_hide_blocked = 1;
 static volatile LONG g_lines;
 static int master_on = 1;                                         // [qol_ui] enabled; every feature below is gated on it at run time
-static int g_exit_lines = 1, g_shift_id = 1, g_show_gold = 0, g_item_move_cfg = 1, g_remember_filter = 1;
+static int g_exit_lines = 1, g_am_load_rooms = 1, g_shift_id = 1, g_show_gold = 0, g_item_move_cfg = 1, g_remember_filter = 1;
 #define MAX_LINES 20000
 
 static void logf_(const char *fmt, ...) {
@@ -163,6 +163,7 @@ static void load_config(void) {
     g_alerts = GetPrivateProfileIntA("lootfilter", "alerts", 1, path);
     g_alert_close = GetPrivateProfileIntA("lootfilter", "alert_close", 1, path);
     g_exit_lines = master && GetPrivateProfileIntA("automap", "exit_lines", 1, path);
+    g_am_load_rooms = GetPrivateProfileIntA("automap", "exit_lines_load_rooms", 1, path);
     g_clock = master && GetPrivateProfileIntA("display", "clock", 1, path);
     g_clock_24h = GetPrivateProfileIntA("display", "clock_24h", 0, path);
     g_clock_color = GetPrivateProfileIntA("display", "clock_color", 4, path);
