@@ -242,17 +242,17 @@ static DWORD am_player_level(DWORD *path_out, DWORD *level_out, DWORD *room1_out
 
 // Runs on the game thread from the game loop (like BH's AutoTele::OnLoop): on entering a level, looks up the destinations.
 static void __cdecl am_loop(void) {
-    static DWORD last, tick; static int tries;
+    static DWORD last; static int tries;
     DWORD now = GetTickCount();
     if (!g_exit_lines || now - last < 200) return;
     last = now;
     DWORD path, level, room1, no = am_player_level(&path, &level, &room1);
     if (no == 0) return;
-    if (no != g_exit_level) { g_name_gen++; g_exit_level = no; memset(g_tgt, 0, sizeof g_tgt); g_nvis = 0; tries = 0; tick = now; }
-    if (tries >= 0 && tries < 120 && now - tick > (tries == 0 ? 300u : 2000u)) {   // keep trying (up to ~4 minutes) while something is missing: each attempt only looks at the rooms not yet done
-        tick = now; tries++;
+    if (no != g_exit_level) { g_name_gen++; g_exit_level = no; memset(g_tgt, 0, sizeof g_tgt); g_nvis = 0; tries = 0; }
+    if (tries == 0) {                                            // BH AutoTele::OnLoop -> GetVectors: ONE pass when the player's area changes, never repeated (repeated AddRoomData / RemoveRoomData calls can race the single-player server thread, e.g. on a Sorceress teleport)
+        tries = 1;
         DWORD misc = *(DWORD *)(level + 0x1B4); DWORD act = (misc && readable((void *)misc, 0x470)) ? *(DWORD *)(misc + 0x46C) : 0;
-        if (am_resolve(level, act, room1) == 0) tries = -1;      // all found: no more work on this level
+        am_resolve(level, act, room1);
     }
 }
 
