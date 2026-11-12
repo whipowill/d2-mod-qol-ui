@@ -107,3 +107,7 @@ Every setting in `qol_ui.ini` is meant to take effect on `.reload` (the key thre
 
 ## Not done / ideas
 Stat ranges for damage lines and the base-defense range (see above); (the rule engine's `{description}` text IS shown now: see "Item descriptions").
+
+## The Sorceress "teleports on her own" glitch was NOT the map lines
+It was in the separate `qol.dll` project (druid summons restore firing on the local Sorceress when a Druid joined the game; fixed there). The destination-line look-up in `automap.h` was suspected for a long time (AddRoomData / RemoveRoomData racing the server) and rewritten as a literal BH copy, but that was not the cause. The rewrite is kept because it matches BH and works in game. `exit_lines_load_rooms=0` (read-only look-up) is a fallback only. If a glitch like this shows up again, switch `qol.dll` features off first.
+

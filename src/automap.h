@@ -248,7 +248,8 @@ static int am_game_ready(void) {
 }
 // Runs on the game thread from the game loop, a copy of BH's AutoTele::OnLoop: when the player's area changes, GetVectors runs once.
 static void __cdecl am_loop(void) {
-    if (!g_exit_lines || !am_game_ready()) return;
+    if (!g_exit_lines) return;
+    if (!am_game_ready()) { g_exit_level = 0xFFFFFFFFu; return; }       // left the game / between games: the next game must look its level up again
     DWORD path, level, room1, no = am_player_level(&path, &level, &room1);
     static DWORD last_try;
     if (no == 0) return;
