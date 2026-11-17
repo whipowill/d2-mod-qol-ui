@@ -23,7 +23,7 @@ static int __fastcall qol_chat(const char *pkt) {                    // pkt: byt
     if (!pkt || !readable(pkt, 8) || !g_reload_cmd[0]) return 0;
     const char *t = pkt + 3; int i = 0;
     while (t[i] == ' ') i++;
-    if (t[i] != '.') return 0;
+    if (t[i] != '.' && t[i] != '/') return 0;                        // ".reload" or "/reload"
     i++;
     size_t n = strlen(g_reload_cmd);
     if (_strnicmp(t + i, g_reload_cmd, n)) return 0;
