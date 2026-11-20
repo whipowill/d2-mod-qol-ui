@@ -179,6 +179,7 @@ static void load_config(void) {
     g_dtint = GetPrivateProfileIntA("display", "debuff_tint", 1, path); if (g_dtint < 0 || g_dtint > 255) g_dtint = 1;
     g_info = master && GetPrivateProfileIntA("display", "map_info", 1, path);
     g_info_color = GetPrivateProfileIntA("display", "map_info_color", 4, path);
+    g_info_tz_color = GetPrivateProfileIntA("display", "map_info_terror_color", 11, path);
     g_item_desc = GetPrivateProfileIntA("features", "item_descriptions", 1, path);
     g_stat_ranges = GetPrivateProfileIntA("features", "item_stat_ranges", 1, path);
     g_range_color = GetPrivateProfileIntA("features", "stat_range_color", 10, path); if (g_range_color < 0 || g_range_color > 15) g_range_color = 10;
@@ -201,7 +202,7 @@ static void load_config(void) {
     g_npc_color = cross_color("npc_cross_color", "npc_color", 13, path);
     g_me_color = cross_color("me_cross_color", "me_color", 32, path);
     g_team_color = cross_color("team_cross_color", "team_color", 125, path);
-    g_portal_cross = GetPrivateProfileIntA("automap", "portal_cross_color", 158, path);
+    g_portal_cross = GetPrivateProfileIntA("automap", "portal_cross_color", 155, path);
     g_teammin_color = cross_color("team_minion_cross_color", "team_minion_color", 120, path);
     g_other_color = cross_color("other_player_cross_color", "other_player_color", 10, path);
     {                                                                                       // name labels: the palette index of the matching cross by default; the game only has a dozen text colours, the nearest is used
@@ -218,7 +219,7 @@ static void load_config(void) {
         }
     }
     static const char *ck[AM_SLOTS] = {"next_color", "other_color", "wp_color", "prev_color", "extra_color"};
-    static const int cdef[AM_SLOTS] = {10, 13, 154, 5, 24};                   // BH's Next / Other / WP / Prev / Other Extra
+    static const int cdef[AM_SLOTS] = {10, 13, 155, 5, 24};                   // BH's Next / Other / WP / Prev / Other Extra
     for (int i = 0; i < AM_SLOTS; i++) g_am_color[i] = GetPrivateProfileIntA("automap", ck[i], cdef[i], path);
 }
 

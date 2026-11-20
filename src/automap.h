@@ -21,7 +21,7 @@ static BYTE *g_am_cl;
 // like BH's FindPresetLocation); exits are tile presets or, on wilderness borders, the walkable gap on the border with the neighbouring level.
 #include "atvectors.h"
 enum { AM_NEXT, AM_OTHER, AM_WP, AM_PREV, AM_EXTRA, AM_SLOTS };
-static int g_am_color[AM_SLOTS] = {10, 13, 154, 5, 24};        // BH's Next / Other / WP / Prev / Other Extra
+static int g_am_color[AM_SLOTS] = {10, 13, 155, 5, 24};        // BH's Next / Other / WP / Prev / Other Extra
 static struct { int x, y, ok; } g_tgt[AM_SLOTS];
 static DWORD g_exit_level = 0xFFFFFFFFu;                         // the level the targets belong to
 

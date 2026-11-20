@@ -14,7 +14,7 @@ static BYTE *g_hud_cl;
 #include "stats.h"
 #include "buffs.h"
 #include "autoparty.h"
-static int g_clock = 1, g_clock_24h = 0, g_clock_color = 4, g_clock_font = 1, g_clock_fh = 0, g_clock_right = 0, g_clock_top = 6, g_info = 1, g_info_color = 4;
+static int g_clock = 1, g_clock_24h = 0, g_clock_color = 4, g_clock_font = 1, g_clock_fh = 0, g_clock_right = 0, g_clock_top = 6, g_info = 1, g_info_color = 4, g_info_tz_color = 11;
 
 // Texts are built (and measured) only when they change -- the clock once a minute, the map info when the level or difficulty changes -- and then
 // just drawn each frame.
@@ -68,26 +68,30 @@ static void hud_base(int sw) {
     DWORD r2 = *(DWORD *)(r1 + 0x10); if (!r2 || !readable((void *)r2, 0x5C)) return;
     DWORD lv = *(DWORD *)(r2 + 0x58); if (!lv || !readable((void *)lv, 0x1D4)) return;
     DWORD no = *(DWORD *)(lv + 0x1D0); if (!no) return;
-    static hud_line ln[3]; static DWORD ckey_no; static int ckey_diff = -2;
+    static hud_line ln[3]; static DWORD ckey_no; static int ckey_diff = -2, ckey_al = -1;
     int diff = p_diff ? (int)p_diff() : 0;
-    if (no != ckey_no || diff != ckey_diff) {                         // level or difficulty changed: rebuild the three lines
+    BYTE *rec = p_hltxt ? p_hltxt(no) : NULL;                         // the Levels.txt row; the area level is MonLvlEx (expansion) for the difficulty
+    int al_now = (rec && readable(rec, 0x1C) && *(WORD *)rec == no && diff >= 0 && diff <= 2) ? (int)*(WORD *)(rec + 0x16 + 2 * diff) : 0;   // read live every draw: another mod (qol.dll's terror zone) can change it while you stand in the area
+    if (no != ckey_no || diff != ckey_diff || al_now != ckey_al) {      // area, difficulty or area level changed: rebuild the three lines
         static int once; if (!once) { once = 1; logf_("hud: first map-info draw"); }
-        ckey_no = no; ckey_diff = diff;
+        ckey_no = no; ckey_diff = diff; ckey_al = al_now;
         memset(ln, 0, sizeof ln);
         wchar_t *name = p_hlname ? p_hlname(no) : NULL;
         if (once == 1) { once = 2; logf_("hud: level %lu name %s", (unsigned long)no, name ? "found" : "missing"); }
         if (name && readable(name, 2) && name[0]) hud_set(&ln[0], name);
         static const wchar_t *dn[] = {L"Normal", L"Nightmare", L"Hell"};
         if (diff >= 0 && diff <= 2) hud_set(&ln[1], dn[diff]);
-        BYTE *rec = p_hltxt ? p_hltxt(no) : NULL;                     // the Levels.txt row; the area level is MonLvlEx (expansion) for the difficulty
-        if (rec && readable(rec, 0x1C) && *(WORD *)rec == no && diff >= 0 && diff <= 2) {
-            int al = (int)*(WORD *)(rec + 0x16 + 2 * diff);
-            if (al > 0) { wchar_t t[16]; swprintf(t, 16, L"%d", al); hud_set(&ln[2], t); }   // a town has area level 0: leave the line blank
-        }
+        if (al_now > 0) { wchar_t t[16]; swprintf(t, 16, L"%d", al_now); hud_set(&ln[2], t); }   // a town has area level 0: leave the line blank
         if (once == 2) { once = 3; logf_("hud: first map-info draw done"); }
     }
+    // qol.dll (when it is loaded and has its terror zones on) tells which area is the current terror zone: that area's LEVEL number (the third line) is drawn in purple. Without qol.dll nothing here changes.
+    static int (*tzf)(void), (*tzin)(int); static DWORD tz_try;                  // qol.dll: qol_in_terror_zone(level) (newer) or qol_terror_zone() = the zone's first area (older)
+    DWORD tnow = GetTickCount();
+    if (!tzf && !tzin && (int)(tnow - tz_try) >= 0) { tz_try = tnow + 3000; HMODULE q = GetModuleHandleA("qol.dll");
+        if (q) { tzin = (int (*)(int))(void *)GetProcAddress(q, "qol_in_terror_zone"); if (!tzin) tzf = (int (*)(void))(void *)GetProcAddress(q, "qol_terror_zone"); } }
+    int tz_here = g_info_tz_color >= 0 && (tzin ? tzin((int)no) : (tzf && (DWORD)tzf() == no));
     int y = 6;
-    for (int i = 0; i < 3; i++) if (ln[i].text[0]) { hud_put(&ln[i], sw - 10, y, g_info_color); y += 16; }
+    for (int i = 0; i < 3; i++) if (ln[i].text[0]) { hud_put(&ln[i], sw - 10, y, i == 2 && tz_here ? g_info_tz_color : g_info_color); y += 16; }
 }
 
 static DWORD WINAPI hud_thread(LPVOID arg) {
