@@ -37,6 +37,23 @@ static BYTE *g_bcf;                                              // the loaded b
 static int g_binit, g_bw = 24, g_bh = 24, g_bcells;
 static int g_bactive[BF_N], g_bn; static DWORD g_bscan;
 
+// A private copy of the loaded cell file (header, the cell pointer table and every cell with its pixel data). The game owns the original memory and may reuse it; when that happens the picture
+// still passes the size checks of bf_cell_ok but its pixel data is damaged, and the decoder draws garbled streaks (seen as dark glyph-like marks sitting on top of an icon). Drawing from this
+// copy makes that impossible. Falls back to the game's own pointers if anything looks wrong.
+static void bf_own_copy(void) {
+    if (!g_bcf || g_bcells < 1 || g_bcells > 4096 || !readable(g_bcf, 0x18 + 4 * (size_t)g_bcells)) return;
+    size_t hdr = 0x18 + 4 * (size_t)g_bcells;
+    BYTE *cf = (BYTE *)VirtualAlloc(NULL, hdr, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE); if (!cf) return;
+    memcpy(cf, g_bcf, hdr);
+    for (int i = 0; i < g_bcells; i++) {
+        DWORD c = *(DWORD *)(g_bcf + 0x18 + 4 * i);
+        if (!c || !readable((void *)c, 0x20)) continue;                                       // a missing cell stays as it was (bf_cell_ok refuses it)
+        DWORD len = *(DWORD *)(c + 0x1C); if (len == 0 || len > 0x10000 || !readable((void *)c, 0x20 + len)) continue;
+        BYTE *cell = (BYTE *)VirtualAlloc(NULL, 0x20 + len, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE); if (!cell) continue;
+        memcpy(cell, (void *)c, 0x20 + len); *(DWORD *)(cf + 0x18 + 4 * i) = (DWORD)cell;
+    }
+    g_bcf = cf; logf_("buffs: private copy of the %d pictures made", g_bcells);
+}
 static void bf_init(void) {                                      // once, on the game thread: add the picture archive to the game's archives and load the pictures
     g_binit = 1;
     if (!p_bload || !p_bdraw || !p_bopen) return;
@@ -52,6 +69,7 @@ static void bf_init(void) {                                      // once, on the
         if (c0 && readable((void *)c0, 12)) { g_bw = (int)*(DWORD *)(c0 + 4); g_bh = (int)*(DWORD *)(c0 + 8); }
         if (g_bw < 4 || g_bw > 64 || g_bh < 4 || g_bh > 64) { g_bw = g_bh = 24; }
         g_bcells = (int)*(DWORD *)(cf + 0x14); g_bcf = cf;
+        bf_own_copy();                                           // draw from OUR copy of the pictures: the game's memory for the cell file gets reused and a damaged picture draws streaks above the icon
         logf_("buffs: %d pictures loaded from %s (%dx%d)", g_bcells, names[n], g_bw, g_bh);
     }
     if (!g_bcf) logf_("buffs: no picture archive (qol_ui.mpq / buffs.mpq) next to the game; icons drawn as boxes");
