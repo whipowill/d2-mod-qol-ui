@@ -21,13 +21,6 @@ int main(void) {
     CHECK(g && g->gem_level == 5 && g->gem_type == 4, "perfect ruby");
     CHECK(r && r->rune_no == 1, "El rune");
     CHECK(k && k->gem_level == 5 && k->gem_type == 7, "perfect skull");
-    {   // MonStats.txt: Align by hcIdx (the "Expansion" divider row has none); without hcIdx the row number without the divider
-        const char *ms = "Id\thcIdx\tAlign\tnpc\r\nskeleton1\t0\t\t\r\nrat\t151\t1\t\r\nExpansion\t\t\t\r\ncow\t179\t2\t\r\n";
-        CHECK(itemdb_parse_monstats(ms, (int)strlen(ms)) == 180, "monstats read");
-        CHECK(itemdb_mon_align(0) == 0 && itemdb_mon_align(151) == 1 && itemdb_mon_align(179) == 2 && itemdb_mon_align(5000) == 0, "align by hcIdx");
-        const char *m2 = "Id\tAlign\tnpc\r\na\t\t\r\nb\t1\t\r\nExpansion\t\t\r\nc\t2\t\r\n";
-        CHECK(itemdb_parse_monstats(m2, (int)strlen(m2)) == 3 && itemdb_mon_align(1) == 1 && itemdb_mon_align(2) == 2, "align by row number");
-    }
     printf(fails ? "%d FAIL\n" : "itemdb ok\n", fails);
     return fails != 0;
 }

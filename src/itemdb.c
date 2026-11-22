@@ -124,28 +124,3 @@ const itemdb_t *itemdb_find(const char *code) {
     for (int i = 0; i < nitems; i++) if (!strncmp(items[i].code, code, 3)) return &items[i];
     return NULL;
 }
-
-// ---- MonStats.txt: which monsters are friendly (Align 1 = ally / NPC / pet, 2 = neutral critter); used to keep them off the monster crosses ----
-static unsigned char monalign[1200]; static int monalign_n;
-int itemdb_parse_monstats(const char *txt, int len) {
-    const char *end = txt + len, *p = txt;
-    const char *he = memchr(p, '\n', (size_t)len); if (!he) return 0;
-    int ca = find_col(p, he, "Align"), ch = find_col(p, he, "hcIdx");
-    if (ca < 0) return 0;
-    memset(monalign, 0, sizeof monalign); monalign_n = 0;
-    int row = 0; p = he + 1;
-    while (p < end) {
-        const char *e = memchr(p, '\n', (size_t)(end - p)); if (!e) e = end;
-        const char *cell[160]; int clen[160]; int n = line_cells(p, e, cell, clen, 160);
-        if (n > ca && clen[0] > 0) {
-            int id = -1;
-            if (ch >= 0 && n > ch && clen[ch] > 0) id = cellint(cell[ch], clen[ch]);
-            else if (!(clen[0] == 9 && !strncmp(cell[0], "Expansion", 9))) id = row;           // no hcIdx column: the row number without the "Expansion" divider
-            if (id >= 0 && id < (int)sizeof monalign) { monalign[id] = (unsigned char)cellint(cell[ca], clen[ca]); if (id + 1 > monalign_n) monalign_n = id + 1; }
-            if (!(clen[0] == 9 && !strncmp(cell[0], "Expansion", 9))) row++;
-        }
-        p = e + 1;
-    }
-    return monalign_n;
-}
-int itemdb_mon_align(int id) { return (id >= 0 && id < monalign_n) ? monalign[id] : 0; }

@@ -298,20 +298,26 @@ typedef int (__cdecl *am_pick_t)(DWORD unit, BYTE *out);
 static am_pick_t p_pick;
 typedef void (__cdecl *am_cross_t)(int x, int y, DWORD color);
 static am_cross_t p_cross;                                                    // the game's own cross shape (D2Client +0x6FED0)
-static int g_monalign_ok, g_monalign_tries;                                   // MonStats.txt "Align" read (once, on the game thread); after 8 failed tries every monster counts as hostile
-static void am_load_monalign(void) {
-    static DWORD last;
-    DWORD now = GetTickCount();
-    if (g_monalign_ok || g_monalign_tries >= 8 || now - last < 2000) return;
-    last = now; g_monalign_tries++;
-    if (storm_read("Data\\global\\excel\\MonStats.txt", itemdb_parse_monstats) > 0) { g_monalign_ok = 1; logf_("automap: monster alignment table read"); }
-    else logf_("automap: MonStats.txt not read (try %d)", g_monalign_tries);
+// Which monsters get a cross: the way BH's IsValidMonster (D2Helpers.cpp) decides it. Hidden: dying / dead (mode 0, 12), a fixed list of monster ids (traps, sentries,
+// hydras, larvae, catapult spotters, Baal's throne ...), three monsters while burrowed / submerged, and any unit whose `alignment` stat (172) is 2 (the game's own
+// "friendly to you" state; BH hides these, here they use friendly_monster_cross_color when it is set). BH also hides units named "an evil force", "dummy" and "Maggot"; not done here.
+typedef int (__stdcall *am_stat_t)(DWORD unit, int stat, int layer);          // D2Common #10216 GetBaseStatSigned
+static am_stat_t p_am_stat; static int g_am_stat_tried;
+static int am_alignment(DWORD u) {                                            // stat 172; 0 when it cannot be read
+    if (!g_am_stat_tried) { g_am_stat_tried = 1; HMODULE cm = GetModuleHandleA("D2Common.dll"); if (cm) p_am_stat = (am_stat_t)GetProcAddress(cm, (LPCSTR)10216); }
+    return p_am_stat ? p_am_stat(u, 172, 0) : 0;
+}
+static int am_bad_monster(DWORD id, DWORD mode) {
+    static const WORD bad[] = {227, 283, 326, 327, 328, 329, 330, 410, 411, 412, 413, 414, 415, 416, 366, 406, 351, 352, 353, 266, 408, 516, 517, 518, 519, 522, 523, 543, 545};
+    for (unsigned i = 0; i < sizeof bad / sizeof *bad; i++) if (id == bad[i]) return 1;
+    if (id == 608 && mode == 8) return 1;
+    if (id == 68 && mode == 14) return 1;                                     // burrowing maggots
+    if ((id == 258 || id == 261) && mode == 14) return 1;                     // water creepers
+    return 0;
 }
 static void am_draw_monsters(DWORD level_no) {
     if (!g_mon_cross || !p_pick || !p_drawline) return;
     if (level_no == 1 || level_no == 40 || level_no == 75 || level_no == 103 || level_no == 109) return;   // the five towns: nobody there is an enemy, so no monster crosses (the game still draws NPCs itself)
-    am_load_monalign();
-    if (!g_monalign_ok && g_monalign_tries < 8) return;                           // wait for the alignment table, so friendly ones never flash up
     readable_reset();
     DWORD pl = p_player();
     if (!pl || !readable_c((void *)pl, 0xF0)) return;
@@ -324,12 +330,13 @@ static void am_draw_monsters(DWORD level_no) {
             if (*(DWORD *)u != 1) continue;                                       // monsters only
             DWORD mode = *(DWORD *)(u + 0x10);
             if (mode == 0 || mode == 12) continue;                                // dying / dead
+            if (am_bad_monster(*(DWORD *)(u + 4), mode)) continue;                // BH's list of units that are not real monsters
             if ((*(DWORD *)(u + 0xC4) >> 0x15) & 1) continue;                     // the flag the game's own picker skips too
             DWORD path = *(DWORD *)(u + 0x2C);
             if (!path || !readable_c((void *)path, 0x20)) continue;
             BYTE col = 0;
             if (p_pick(u, &col)) continue;                                        // the game draws this one itself (NPC, minion, party)
-            int friendly = g_monalign_ok && itemdb_mon_align((int)*(DWORD *)(u + 4)) != 0, color = friendly ? g_friend_color : g_mon_color;
+            int friendly = am_alignment(u) == 2, color = friendly ? g_friend_color : g_mon_color;
             if (color < 0) continue;                                              // friendly monsters (statues, critters, prisoners, others' pets): hidden unless friendly_monster_cross_color is set
             int sx, sy; am_to_screen(*(WORD *)(path + 2), *(WORD *)(path + 6), &sx, &sy);
             if (p_cross) {
