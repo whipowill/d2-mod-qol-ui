@@ -2,7 +2,7 @@
 
 Interface features for single-player Diablo II LoD **1.13d** as a 32-bit Windows DLL (`qol_ui.dll`), cross-built from Linux. It is loaded the
 same way as other game DLLs (PlugY `DllToLoad`, d2gl `load_dlls_late`). Everything is read from `qol_ui.ini` and the loot rules file
-`qol_ui_filter.cfg`, both in the game folder (no BH config file is ever read). Nothing can be changed in game except through the keys in `[keys]`, and there are no monster or missile markers. The one deliberate exception, requested by the user: the automap destination lines cover the whole level, explored or not (as BH's AutoTele does).
+`qol_ui_filter.cfg`, both in the game folder (no BH config file is ever read). Nothing can be changed in game except through the keys in `[keys]`, and there are no missile markers. Two deliberate exceptions, both requested by the user: the automap destination lines cover the whole level, explored or not (as BH's AutoTele does), and `[automap] monster_cross` draws a cross on every living hostile monster (as BH's Maphack does).
 
 ## Build and test
 - One-time: `pip install --target .tools ziglang` (`.tools/` is gitignored). `./build.sh` writes `build/qol_ui.dll` and `build/qol_ui.ini` (intermediates in `.out/`).

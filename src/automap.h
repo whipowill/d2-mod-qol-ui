@@ -21,7 +21,7 @@ static BYTE *g_am_cl;
 // like BH's FindPresetLocation); exits are tile presets or, on wilderness borders, the walkable gap on the border with the neighbouring level.
 #include "atvectors.h"
 enum { AM_NEXT, AM_OTHER, AM_WP, AM_PREV, AM_EXTRA, AM_SLOTS };
-static int g_am_color[AM_SLOTS] = {10, 13, 155, 5, 24};        // BH's Next / Other / WP / Prev / Other Extra
+static int g_am_color[AM_SLOTS] = {13, 10, 151, 24, 5};        // Next / Other / WP / Prev / Other Extra
 static struct { int x, y, ok; } g_tgt[AM_SLOTS];
 static DWORD g_exit_level = 0xFFFFFFFFu;                         // the level the targets belong to
 
@@ -290,6 +290,59 @@ static void am_draw_dots(int px, int py) {                     // BH: items flag
     }
 }
 
+// Monster crosses (qol_ui.ini [automap] monster_cross; BH's Maphack draws a cross on every monster). The game already draws crosses for town NPCs, your
+// minions and party members through its own colour picker (D2Client +0x72440: unit in EAX, colour byte out through [EBX], returns 1 = "draw a cross").
+// So the picker is asked about every monster in the act's rooms: when it says no (a hostile monster, which it never draws) and the monster is alive, this
+// DLL draws a plus in monster_cross_color. A monster the picker would draw is left to the game, so your minions and the NPCs keep their own colours.
+typedef int (__cdecl *am_pick_t)(DWORD unit, BYTE *out);
+static am_pick_t p_pick;
+typedef void (__cdecl *am_cross_t)(int x, int y, DWORD color);
+static am_cross_t p_cross;                                                    // the game's own cross shape (D2Client +0x6FED0)
+static int g_monalign_ok, g_monalign_tries;                                   // MonStats.txt "Align" read (once, on the game thread); after 8 failed tries every monster counts as hostile
+static void am_load_monalign(void) {
+    static DWORD last;
+    DWORD now = GetTickCount();
+    if (g_monalign_ok || g_monalign_tries >= 8 || now - last < 2000) return;
+    last = now; g_monalign_tries++;
+    if (storm_read("Data\\global\\excel\\MonStats.txt", itemdb_parse_monstats) > 0) { g_monalign_ok = 1; logf_("automap: monster alignment table read"); }
+    else logf_("automap: MonStats.txt not read (try %d)", g_monalign_tries);
+}
+static void am_draw_monsters(DWORD level_no) {
+    if (!g_mon_cross || !p_pick || !p_drawline) return;
+    if (level_no == 1 || level_no == 40 || level_no == 75 || level_no == 103 || level_no == 109) return;   // the five towns: nobody there is an enemy, so no monster crosses (the game still draws NPCs itself)
+    am_load_monalign();
+    if (!g_monalign_ok && g_monalign_tries < 8) return;                           // wait for the alignment table, so friendly ones never flash up
+    readable_reset();
+    DWORD pl = p_player();
+    if (!pl || !readable_c((void *)pl, 0xF0)) return;
+    DWORD act = *(DWORD *)(pl + 0x1C);
+    if (!act || !readable_c((void *)act, 0x14)) return;
+    int guard = 0;
+    for (DWORD room = *(DWORD *)(act + 0x10); room && readable_c((void *)room, 0x80) && guard < 256; room = *(DWORD *)(room + 0x7C), guard++) {
+        int ug = 0;
+        for (DWORD u = *(DWORD *)(room + 0x74); u && readable_c((void *)u, 0xF0) && ug < 4096; u = *(DWORD *)(u + 0xE8), ug++) {
+            if (*(DWORD *)u != 1) continue;                                       // monsters only
+            DWORD mode = *(DWORD *)(u + 0x10);
+            if (mode == 0 || mode == 12) continue;                                // dying / dead
+            if ((*(DWORD *)(u + 0xC4) >> 0x15) & 1) continue;                     // the flag the game's own picker skips too
+            DWORD path = *(DWORD *)(u + 0x2C);
+            if (!path || !readable_c((void *)path, 0x20)) continue;
+            BYTE col = 0;
+            if (p_pick(u, &col)) continue;                                        // the game draws this one itself (NPC, minion, party)
+            int friendly = g_monalign_ok && itemdb_mon_align((int)*(DWORD *)(u + 4)) != 0, color = friendly ? g_friend_color : g_mon_color;
+            if (color < 0) continue;                                              // friendly monsters (statues, critters, prisoners, others' pets): hidden unless friendly_monster_cross_color is set
+            int sx, sy; am_to_screen(*(WORD *)(path + 2), *(WORD *)(path + 6), &sx, &sy);
+            if (p_cross) {
+                if (p_mapsize()) { sx++; sy -= 5; }                                 // the game's routine applies the small-map shift itself; am_to_screen already did
+                p_cross(sx, sy, (DWORD)color);
+            } else {
+                p_drawline(sx - 3, sy, sx + 4, sy, (DWORD)color, (DWORD)-1);
+                p_drawline(sx, sy - 3, sx, sy + 4, (DWORD)color, (DWORD)-1);
+            }
+        }
+    }
+}
+
 // The game's cross-colour table (D2Client +0x11CF70..7F). Written every frame; a setting of -1, or the DLL being disabled, puts the game's own value back.
 static void am_cross_colors(void) {
     static BYTE orig[16]; static int have;
@@ -302,6 +355,7 @@ static void am_cross_colors(void) {
     AMC(5, g_other_color >= 0 ? g_other_color : g_merc_color);            // other players NOT in your party; the same entry colours your minions when you are not in a party (the player colour wins)
     AMC(7, g_team_color);                                                 // other players in your party
     AMC(9, g_teammin_color);                                              // minions of the players in your party (drawn only while the game's automap 'show party' option is on)
+    AMC(6, g_corpse_color);                                               // the cross where your own body lies after you died (entry 0x76; the game picks it for a dead player unit it owns)
     AMC(0xC, g_portal_cross);                                             // portal crosses (town / red portals: objects 0x3B, 0x3C)
     AMC(0xA, g_npc_color);                                                // town NPCs (the game uses entry 7A for monsters that are NPCs)
 #undef AMC
@@ -314,6 +368,7 @@ static void __cdecl am_draw(void) {
     if (no == 0) return;
     int px, py; am_to_screen(*(WORD *)(path + 2), *(WORD *)(path + 6), &px, &py);
     if (g_filter_on && g_fi && g_dots_on) am_draw_dots(px, py);
+    am_draw_monsters(no);
     if (!g_exit_lines || no != g_exit_level) return;
     for (int i = 0; i < AM_SLOTS; i++) {
         if (!g_tgt[i].ok || g_am_color[i] < 0) continue;
@@ -335,6 +390,7 @@ static int am_text_for_palette(int idx) {
     }
     return best;
 }
+static volatile int g_corpse_cell = -1;                                           // the text colour the corpse label wrapper uses (-1 = leave it)
 static BYTE *g_lbl_site[4]; static BYTE g_lbl_orig[4];            // the patched operand bytes and the game's own values (found once; re-applied on .reload)
 static void am_label_apply(void) {
     static const int *val[4] = {&g_lbl_npc, &g_lbl_team, &g_lbl_other, &g_lbl_other};
@@ -346,7 +402,29 @@ static void am_label_apply(void) {
         if (*g_lbl_site[i] != v) patch_bytes(g_lbl_site[i], &v, 1);
         n++;
     }
+    g_corpse_cell = (!master_on || g_lbl_corpse < 0) ? -1 : g_lbl_corpse >= 256 ? g_lbl_corpse - 256 : am_text_for_palette(g_lbl_corpse);
     logf_("automap: name labels: NPC text colour %d, party %d, other players %d (%d sites)", g_lbl_site[0] ? *g_lbl_site[0] : -1, g_lbl_site[1] ? *g_lbl_site[1] : -1, g_lbl_site[2] ? *g_lbl_site[2] : -1, n);
+}
+// The game draws every other player's name through one call (D2Client +0xC650, args colour / x / y / unit) right after the "party green, other red" push, in
+// the unit-draw routine. That call is pointed at a small wrapper: a unit in mode 0x11 (a dead player's body) gets the colour in g_corpse_cell, everything
+// else passes through unchanged. The site is found from the "other player" label site (the call is 4 bytes after its operand) and its target is verified.
+static void am_corpse_label_install(void) {
+    static int done;
+    if (done || !g_lbl_site[2] || !g_am_cl) return;
+    BYTE *c = g_lbl_site[2] + 4;
+    DWORD real = (DWORD)g_am_cl + 0xC650;
+    if (c[0] != 0xE8 || (DWORD)(c + 5) + *(DWORD *)(c + 1) != real) { logf_("automap: corpse label call not found; corpse_text_color off"); done = 1; return; }
+    BYTE *w = stub_alloc(); if (!w) return;
+    static const BYTE a1[] = {0x50, 0x8B, 0x44, 0x24, 0x08, 0x83, 0x78, 0x10, 0x11, 0x75, 0x0D, 0xA1};       // push eax ; mov eax,[esp+8] ; cmp [eax+10h],11h ; jne L ; mov eax,[cell]
+    static const BYTE a2[] = {0x85, 0xC0, 0x78, 0x04, 0x89, 0x44, 0x24, 0x14, 0x58};                          // test eax,eax ; js L ; mov [esp+14h],eax ; L: pop eax
+    BYTE *q = emit(w, a1, sizeof a1);
+    *(DWORD *)q = (DWORD)&g_corpse_cell; q += 4;
+    q = emit(q, a2, sizeof a2);
+    emit_rel(q, 0xE9, real);
+    DWORD rel = (DWORD)w - (DWORD)(c + 5);
+    patch_bytes(c + 1, (const BYTE *)&rel, 4);
+    done = 1;
+    logf_("automap: corpse label wrapper installed (D2Client +%lx)", (unsigned long)(c - g_am_cl));
 }
 static void am_label_colors(BYTE *code, size_t size) {          // find the four sites once (always, so a later .reload can use them), then apply the settings
     for (int i = 0; i < 4; i++) {
@@ -354,6 +432,7 @@ static void am_label_colors(BYTE *code, size_t size) {          // find the four
         if (at < 0) { logf_("automap: label colour site %d not found (or more than once); left alone", i); continue; }
         g_lbl_site[i] = code + at; g_lbl_orig[i] = (BYTE)cur;
     }
+    am_corpse_label_install();
     am_label_apply();
 }
 
@@ -370,12 +449,34 @@ static DWORD WINAPI automap_thread(LPVOID arg) {
     p_rect = (am_rect_t)GetProcAddress(gfx, (LPCSTR)10028);
     if (!p_drawline) { logf_("automap: D2gfx DrawLine not found; off"); return 0; }
     p_player = (mh_player_t)((BYTE *)cl + 0x613C0); p_mapsize = (am_size_t)((BYTE *)cl + 0x6FDD0);
+    {                                                                  // cdecl int pick(unit, BYTE *out) around the game's register-call colour picker (D2Client +0x72440)
+        BYTE *t = stub_alloc();
+        if (t) {
+            static const BYTE a1[] = {0x53, 0x8B, 0x5C, 0x24, 0x0C, 0x8B, 0x44, 0x24, 0x08};   // push ebx ; mov ebx,[esp+0xC] ; mov eax,[esp+8]
+            static const BYTE a2[] = {0x5B, 0xC3};                                              // pop ebx ; ret
+            BYTE *q = emit(t, a1, sizeof a1);
+            q = emit_rel(q, 0xE8, (DWORD)cl + 0x72440);
+            emit(q, a2, sizeof a2);
+            p_pick = (am_pick_t)t;
+        }
+    }
+    {                                                                  // cdecl void cross(x, y, colour) around the game's cross drawer (eax = y, ecx = x, colour on the stack, ret 4)
+        BYTE *t = stub_alloc(), *fn = (BYTE *)cl + 0x6FED0;
+        static const BYTE sig[] = {0x53, 0x55, 0x8B, 0x6C, 0x24, 0x0C, 0x8B, 0xD8, 0x83, 0x3D};   // push ebx ; push ebp ; mov ebp,[esp+0xC] ; mov ebx,eax ; cmp [..],1
+        if (t && !memcmp(fn, sig, sizeof sig)) {
+            static const BYTE c1[] = {0x8B, 0x44, 0x24, 0x08, 0x8B, 0x4C, 0x24, 0x04, 0xFF, 0x74, 0x24, 0x0C};   // mov eax,[esp+8] ; mov ecx,[esp+4] ; push [esp+0Ch]
+            BYTE *q = emit(t, c1, sizeof c1);
+            q = emit_rel(q, 0xE8, (DWORD)fn);
+            *q = 0xC3;
+            p_cross = (am_cross_t)t;
+        } else logf_("automap: the game's cross drawer was not found; monster crosses use a plain plus");
+    }
     p_divisor = (int *)((BYTE *)cl + 0xF34F8); p_offset = (LONG *)((BYTE *)cl + 0x11CF5C);
     BYTE *base = (BYTE *)cl; IMAGE_SECTION_HEADER *sec = IMAGE_FIRST_SECTION(nt);
     for (int k = 0; k < nt->FileHeader.NumberOfSections; k++, sec++) {
         if (!(sec->Characteristics & IMAGE_SCN_MEM_EXECUTE)) continue;
         BYTE *code = base + sec->VirtualAddress; int patched = 0;
-        if (g_lbl_npc >= 0 || g_lbl_team >= 0 || g_lbl_other >= 0) { if (sig_find_labelcolor(code, sec->Misc.VirtualSize, 0, NULL) >= 0 || sig_find_labelcolor(code, sec->Misc.VirtualSize, 1, NULL) >= 0) am_label_colors(code, sec->Misc.VirtualSize); }   // only in the section that holds the unit-draw routine
+        if (g_lbl_npc >= 0 || g_lbl_team >= 0 || g_lbl_other >= 0 || g_lbl_corpse >= 0) { if (sig_find_labelcolor(code, sec->Misc.VirtualSize, 0, NULL) >= 0 || sig_find_labelcolor(code, sec->Misc.VirtualSize, 1, NULL) >= 0) am_label_colors(code, sec->Misc.VirtualSize); }   // only in the section that holds the unit-draw routine
         long at = sig_find_automap(code, sec->Misc.VirtualSize, &patched);
         if (at < 0) continue;
         if (patched) { logf_("automap: hook already installed"); return 0; }

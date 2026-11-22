@@ -17,6 +17,7 @@ static FILE *g_log;
 static int g_logging = 0, g_filter_on = 1, g_filter_level = 1, g_ping_level = 5, g_hide_blocked = 1;
 static volatile LONG g_lines;
 static int master_on = 1;                                         // [qol_ui] enabled; every feature below is gated on it at run time
+static int g_mon_cross = 0, g_mon_color = 8, g_corpse_color = 10, g_lbl_corpse = 256 + 1, g_friend_color = 13;                        // [automap] monster_cross / monster_cross_color (palette 8 = dark red)
 static int g_exit_lines = 1, g_am_load_rooms = 1, g_shift_id = 1, g_show_gold = 0, g_item_move_cfg = 1, g_remember_filter = 1;
 #define MAX_LINES 20000
 
@@ -164,6 +165,10 @@ static void load_config(void) {
     g_alert_close = GetPrivateProfileIntA("lootfilter", "alert_close", 1, path);
     g_exit_lines = master && GetPrivateProfileIntA("automap", "exit_lines", 1, path);
     g_am_load_rooms = GetPrivateProfileIntA("automap", "exit_lines_load_rooms", 1, path);
+    g_corpse_color = GetPrivateProfileIntA("automap", "corpse_cross_color", 10, path);
+    g_friend_color = GetPrivateProfileIntA("automap", "friendly_monster_cross_color", 13, path); if (g_friend_color > 255) g_friend_color = -1;
+    g_mon_cross = master && GetPrivateProfileIntA("automap", "monster_cross", 0, path);
+    g_mon_color = GetPrivateProfileIntA("automap", "monster_cross_color", 8, path); if (g_mon_color < 0 || g_mon_color > 255) g_mon_color = 8;
     g_clock = master && GetPrivateProfileIntA("display", "clock", 1, path);
     g_clock_24h = GetPrivateProfileIntA("display", "clock_24h", 0, path);
     g_clock_color = GetPrivateProfileIntA("display", "clock_color", 4, path);
@@ -202,7 +207,7 @@ static void load_config(void) {
     g_npc_color = cross_color("npc_cross_color", "npc_color", 13, path);
     g_me_color = cross_color("me_cross_color", "me_color", 32, path);
     g_team_color = cross_color("team_cross_color", "team_color", 125, path);
-    g_portal_cross = GetPrivateProfileIntA("automap", "portal_cross_color", 155, path);
+    g_portal_cross = GetPrivateProfileIntA("automap", "portal_cross_color", 151, path);
     g_teammin_color = cross_color("team_minion_cross_color", "team_minion_color", 120, path);
     g_other_color = cross_color("other_player_cross_color", "other_player_color", 10, path);
     {                                                                                       // name labels: the palette index of the matching cross by default; the game only has a dozen text colours, the nearest is used
@@ -217,9 +222,17 @@ static void load_config(void) {
             else if (t[0] == '-') v = -1;
             *lv[i] = v;                                                      // -1 = leave the game's colour
         }
+        {                                                                       // corpse_text_color: the label next to a dead player's body (default: the same as other players)
+            char t[32]; GetPrivateProfileStringA("automap", "corpse_text_color", "", t, (DWORD)sizeof t, path);
+            int v = 256 + 1;                                                    // default: text colour 1 (red)
+            if ((t[0] == 't' || t[0] == 'T') && t[1] >= '0' && t[1] <= '9') { int n = atoi(t + 1); v = n <= 12 ? 256 + n : -1; }
+            else if (t[0] >= '0' && t[0] <= '9') { v = atoi(t); if (v > 255) v = -1; }
+            else if (t[0] == '-') v = -1;
+            g_lbl_corpse = v;
+        }
     }
     static const char *ck[AM_SLOTS] = {"next_color", "other_color", "wp_color", "prev_color", "extra_color"};
-    static const int cdef[AM_SLOTS] = {10, 13, 155, 5, 24};                   // BH's Next / Other / WP / Prev / Other Extra
+    static const int cdef[AM_SLOTS] = {13, 10, 151, 24, 5};                    // Next / Other / WP / Prev / Other Extra (BH's own defaults were 10 / 13 / 155 / 5 / 24)
     for (int i = 0; i < AM_SLOTS; i++) g_am_color[i] = GetPrivateProfileIntA("automap", ck[i], cdef[i], path);
 }
 

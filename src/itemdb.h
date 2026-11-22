@@ -12,5 +12,7 @@ int itemdb_parse_types(const char *txt, int len);                 // ItemTypes.t
 int itemdb_parse_items(const char *txt, int len, int kind);       // kind: 0 armor, 1 weapons, 2 misc; returns items read
 const itemdb_t *itemdb_find(const char *code);                    // 3-letter code, or NULL
 int itemdb_count(void);
+int itemdb_parse_monstats(const char *txt, int len);              // MonStats.txt: the Align column by monster id; returns ids read
+int itemdb_mon_align(int id);                                      // 0 hostile, 1 friendly, 2 neutral (0 when unknown)
 void itemdb_reset(void);
 #endif
