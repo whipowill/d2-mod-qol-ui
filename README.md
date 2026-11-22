@@ -2,7 +2,7 @@
 
 A mod for Diablo II introducing various UI enhancements such as loot filters, map indicators, and more.
 
-![Cover Art](https://i.imgur.com/bPM9M7S.jpeg)
+![Cover Art](https://i.imgur.com/D1CKhA2.jpg)
 
 **Note this was designed for D2LOD v1.13 and will not work on version 1.14.**
 
