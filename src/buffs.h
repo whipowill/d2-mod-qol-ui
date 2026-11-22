@@ -41,9 +41,10 @@ static int g_bactive[BF_N], g_bn; static DWORD g_bscan;
 // still passes the size checks of bf_cell_ok but its pixel data is damaged, and the decoder draws garbled streaks (seen as dark glyph-like marks sitting on top of an icon). Drawing from this
 // copy makes that impossible. Falls back to the game's own pointers if anything looks wrong.
 static void bf_own_copy(void) {
-    if (!g_bcf || g_bcells < 1 || g_bcells > 4096 || !readable(g_bcf, 0x18 + 4 * (size_t)g_bcells)) return;
+    if (!g_bcf || g_bcells < 1 || g_bcells > 4096) { logf_("buffs: private copy skipped (cells %d)", g_bcells); return; }
+    if (!readable(g_bcf, 0x18 + 4 * (size_t)g_bcells)) { logf_("buffs: private copy skipped (cell file header %p not readable for %u bytes)", (void *)g_bcf, (unsigned)(0x18 + 4 * g_bcells)); return; }
     size_t hdr = 0x18 + 4 * (size_t)g_bcells;
-    BYTE *cf = (BYTE *)VirtualAlloc(NULL, hdr, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE); if (!cf) return;
+    BYTE *cf = (BYTE *)VirtualAlloc(NULL, hdr, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE); if (!cf) { logf_("buffs: private copy skipped (VirtualAlloc failed)"); return; }
     memcpy(cf, g_bcf, hdr);
     for (int i = 0; i < g_bcells; i++) {
         DWORD c = *(DWORD *)(g_bcf + 0x18 + 4 * i);
@@ -52,7 +53,8 @@ static void bf_own_copy(void) {
         BYTE *cell = (BYTE *)VirtualAlloc(NULL, 0x20 + len, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE); if (!cell) continue;
         memcpy(cell, (void *)c, 0x20 + len); *(DWORD *)(cf + 0x18 + 4 * i) = (DWORD)cell;
     }
-    g_bcf = cf; logf_("buffs: private copy of the %d pictures made", g_bcells);
+    int kept = 0; for (int i = 0; i < g_bcells; i++) if (*(DWORD *)(cf + 0x18 + 4 * i) != *(DWORD *)(g_bcf + 0x18 + 4 * i)) kept++;
+    g_bcf = cf; logf_("buffs: private copy of the %d pictures made (%d cells copied)", g_bcells, kept);
 }
 static void bf_init(void) {                                      // once, on the game thread: add the picture archive to the game's archives and load the pictures
     g_binit = 1;
